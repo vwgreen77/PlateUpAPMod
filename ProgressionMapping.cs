@@ -548,15 +548,16 @@ namespace KitchenPlateupAP
             { 21, DishReferences.BreakfastVeganExtras },
             { 22, DishReferences.StirFrySoySauce },
             { 23, -1795285445 }, // Giant Sandwiches
-            { 24, -72176411 }, // Toast Sandwiches
-            { 25, -469304690 }, // Sandwich - Cheese
-            { 26, 525935646 }, // Sandwich - Eggs
-            { 27, -778719372 }, // Sandwich - Mayo
-            { 28, 368792675 }, // Sandwich - Toppers
-            { 29, 641008296 }, // Club Sandwiches
-            { 30, 1879652468 }, // Sundae Toppings
-            { 31, -690833761 }, // Giant Sundaes
-            {32, 431260200 }, // Sundae Syrups
+            { 24, -72176411 },   // Toast Sandwiches
+            { 25, -469304690 },  // Sandwich - Cheese
+            { 26, 525935646 },   // Sandwich - Eggs
+            { 27, -778719372 },  // Sandwich - Mayo
+            { 28, 368792675 },   // Sandwich - Toppers
+            { 29, 641008296 },   // Club Sandwiches
+            { 30, 1879652468 },  // Sundae Toppings
+            { 31, -690833761 },  // Giant Sundaes
+            { 32, 431260200 },   // Sundae Syrups
+            { 33, DishReferences.SpaghettiBolognese }, // Spaghetti - Bolognese sauce
         };
 
         public static readonly Dictionary<int, int> allDishSides = new Dictionary<int, int>()
@@ -599,21 +600,21 @@ namespace KitchenPlateupAP
             { 20011, "Card Swap" },
         };
 
-        // Maps a dish GDO ID to the allDishExtras keys that are valid for that dish.
         public static readonly Dictionary<int, List<int>> dishExtraKeysByDish = new Dictionary<int, List<int>>()
         {
-            { DishReferences.SteakBase,         new List<int> { 1, 2, 3, 4 } },
-            { DishReferences.TurkeyBase,        new List<int> { 5, 6, 7 } },
-            { DishReferences.Dumplings,         new List<int> { 8, 9 } },
-            { DishReferences.SaladBase,         new List<int> { 10 } },
-            { DishReferences.PizzaBase,         new List<int> { 11, 12 } },
-            { DishReferences.BurgerBase,        new List<int> { 13, 14, 15 } },
-            { DishReferences.FishBase,          new List<int> { 16, 17 } },
-            { DishReferences.HotdogBase,        new List<int> { 18 } },
-            { DishReferences.BreakfastBase,     new List<int> { 19, 20, 21 } },
-            { DishReferences.StirFryBase,       new List<int> { 22 } },
-            { -1272159363,                      new List<int> { 23, 24, 25, 26, 27, 28, 29 } }, // Sandwiches
-            { 934171642,                        new List<int> { 30, 31, 32 } },                 // Sundaes
+            { DishReferences.SteakBase,     new List<int> { 1, 2, 3, 4 } },
+            { DishReferences.TurkeyBase,    new List<int> { 5, 6, 7 } },
+            { DishReferences.Dumplings,     new List<int> { 8, 9 } },
+            { DishReferences.SaladBase,     new List<int> { 10 } },
+            { DishReferences.PizzaBase,     new List<int> { 11, 12 } },
+            { DishReferences.BurgerBase,    new List<int> { 13, 14, 15 } },
+            { DishReferences.FishBase,      new List<int> { 16, 17 } },
+            { DishReferences.HotdogBase,    new List<int> { 18 } },
+            { DishReferences.BreakfastBase, new List<int> { 19, 20, 21 } },
+            { DishReferences.StirFryBase,   new List<int> { 22 } },
+            { DishReferences.PomodoroBase,  new List<int> { 33 } }, // Spaghetti - Bolognese
+            { -1272159363,                  new List<int> { 23, 24, 25, 26, 27, 28, 29 } }, // Sandwiches
+            { 934171642,                    new List<int> { 30, 31, 32 } },                 // Sundaes
         };
 
         public static readonly Dictionary<int, string> dishDictionary = new Dictionary<int, string>()
@@ -627,7 +628,7 @@ namespace KitchenPlateupAP
             { DishReferences.TurkeyBase, "Turkey" },
             { DishReferences.PieBase, "Pie" },
             { DishReferences.Cakes, "Cakes" },
-            { DishReferences.SpaghettiBolognese, "Spaghetti" },
+            { DishReferences.PomodoroBase, "Spaghetti" },
             { DishReferences.FishBase, "Fish" },
             { DishReferences.TacosBase, "Tacos" },
             { DishReferences.HotdogBase, "Hot Dogs" },

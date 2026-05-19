@@ -1,4 +1,4 @@
-using Archipelago.MultiClient.Net.Enums;
+﻿using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Helpers;
 using Archipelago.MultiClient.Net.MessageLog.Messages;
 using Archipelago.MultiClient.Net.MessageLog.Parts;
@@ -68,13 +68,22 @@ namespace KitchenPlateupAP
         private static Texture2D backgroundTex;
         private static Texture2D inputBackgroundTex;
 
+        // Chat window state
+        private static bool chatHidden = false;
+        private static float chatWidth = 550f;
+        private static float chatHeight = 450f;
+        private static bool isResizing = false;
+        private static Vector2 resizeDragStart;
+        private static Vector2 resizeSizeStart;
+        private static Texture2D resizeHandleTex;
+
         // Color definitions
         private static readonly UnityColor TurquoisePlayerColor = new UnityColor(0f, 0.8f, 0.8f); // local player name
         private static readonly UnityColor FillerItemColor = UnityColor.green; // None
         private static readonly UnityColor UsefulItemColor = UnityColor.blue; // NeverExclude
         private static readonly UnityColor ProgressionItemColor = new UnityColor(1f, 0.84f, 0f); // Advancement (gold)
 
-        // Archipelago canonical colors � matched to the AP color spec
+        // Archipelago canonical colors — matched to the AP color spec
         // Yellow       = local player
         // Magenta      = other players
         // Plum         = progression items (Advancement)
@@ -156,6 +165,9 @@ namespace KitchenPlateupAP
             if (styleNormal == null) InitializeGUIStyles();
             InitializeFooterStyles();
 
+            // Handle resize drag input before any layout
+            HandleResizeDrag();
+
             Rect footerRect = GetGlobalFooterRect();
             bool footerInteracting = IsFooterInteracting(footerRect);
 
@@ -165,8 +177,21 @@ namespace KitchenPlateupAP
                 opacity = 0.25f;
             }
 
-            float chatWidth = 550f;
-            float chatHeight = 450f;
+            // When hidden, show only a small toggle button at the bottom-left
+            if (chatHidden)
+            {
+                GUI.color = new UnityColor(1f, 1f, 1f, opacity);
+                if (GUI.Button(new Rect(10f, Screen.height - 40f, 85f, 30f), "Chat ▶", styleButton))
+                    chatHidden = false;
+                GUI.color = UnityColor.white;
+
+                if (!IsInKitchen())
+                    DrawGlobalFooterHUD(opacity, footerRect);
+                if (Mod.DayLeasesEnabled)
+                    DrawLeaseCountdownBadge(opacity);
+                return;
+            }
+
             Rect chatRect = new Rect(10f, Screen.height - chatHeight - 10f, chatWidth, chatHeight);
 
             if (backgroundTex == null)
@@ -188,8 +213,15 @@ namespace KitchenPlateupAP
 
             float inputHeight = 30f;
             float inputY = chatRect.height - inputHeight - 5f;
-            float inputWidth = chatWidth - 70f;
-            Rect inputRect = new Rect(contentX, inputY, inputWidth, inputHeight);
+
+            // Layout: [◀ Hide] [      Input Field      ] [Send]
+            const float hideButtonWidth = 34f;
+            const float sendButtonWidth = 60f;
+            const float gap = 4f;
+
+            float inputX = contentX + hideButtonWidth + gap;
+            float inputWidth = chatWidth - inputX - sendButtonWidth - gap - contentX;
+            Rect inputRect = new Rect(inputX, inputY, inputWidth, inputHeight);
             bool inputHovered = inputRect.Contains(Event.current.mousePosition);
 
             // Helper to build display text with color tags
@@ -284,16 +316,24 @@ namespace KitchenPlateupAP
                 GUI.FocusControl("ChatInputField");
             }
 
+            // Hide button (◀) — left of input field
+            Rect hideButtonRect = new Rect(contentX, inputY, hideButtonWidth, inputHeight);
+            if (GUI.Button(hideButtonRect, "◀", styleButton))
+                chatHidden = true;
+
             GUI.SetNextControlName("ChatInputField");
             inputBuffer = GUI.TextField(inputRect, inputBuffer, styleInput);
 
-            Rect buttonRect = new Rect(inputRect.xMax + 5f, inputY, 60f, inputHeight);
+            Rect buttonRect = new Rect(inputRect.xMax + gap, inputY, sendButtonWidth, inputHeight);
             if (GUI.Button(buttonRect, "Send", styleButton) || Event.current.isKey && Event.current.keyCode == KeyCode.Return && IsInputFocused())
             {
                 TrySendMessage();
             }
 
             GUI.EndGroup();
+
+            // Resize handle drawn in screen space (outside the group)
+            DrawResizeHandle(chatRect, opacity);
 
             if (!IsInKitchen())
             {
@@ -305,7 +345,70 @@ namespace KitchenPlateupAP
             {
                 DrawLeaseCountdownBadge(opacity);
             }
+        }
 
+        /// <summary>
+        /// Processes mouse events for the resize drag handle at the bottom-right of the chat window.
+        /// Dragging right widens the chat; dragging up increases its height (window is bottom-anchored).
+        /// </summary>
+        private void HandleResizeDrag()
+        {
+            if (chatHidden) return;
+
+            Rect chatRect = new Rect(10f, Screen.height - chatHeight - 10f, chatWidth, chatHeight);
+            Rect handle = new Rect(chatRect.xMax - 16f, chatRect.yMax - 16f, 16f, 16f);
+
+            var evt = Event.current;
+            if (evt.type == UnityEngine.EventType.MouseDown && handle.Contains(evt.mousePosition))
+            {
+                isResizing = true;
+                resizeDragStart = evt.mousePosition;
+                resizeSizeStart = new Vector2(chatWidth, chatHeight);
+                evt.Use();
+            }
+            else if (isResizing)
+            {
+                if (evt.type == UnityEngine.EventType.MouseDrag)
+                {
+                    Vector2 delta = evt.mousePosition - resizeDragStart;
+                    chatWidth = Mathf.Clamp(resizeSizeStart.x + delta.x, 300f, Screen.width * 0.65f);
+                    chatHeight = Mathf.Clamp(resizeSizeStart.y - delta.y, 150f, Screen.height * 0.80f);
+                    evt.Use();
+                }
+                if (evt.type == UnityEngine.EventType.MouseUp)
+                {
+                    isResizing = false;
+                    evt.Use();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Draws a small visual resize grip at the bottom-right corner of the chat window.
+        /// </summary>
+        private void DrawResizeHandle(Rect chatRect, float opacity)
+        {
+            if (resizeHandleTex == null)
+            {
+                resizeHandleTex = new Texture2D(1, 1);
+                resizeHandleTex.SetPixel(0, 0, UnityColor.white);
+                resizeHandleTex.Apply();
+            }
+
+            const float size = 16f;
+            Rect handle = new Rect(chatRect.xMax - size, chatRect.yMax - size, size, size);
+            GUI.color = new UnityColor(0.6f, 0.6f, 0.6f, 0.8f * opacity);
+            GUI.DrawTexture(handle, resizeHandleTex);
+            GUI.color = UnityColor.white;
+
+            // Draw diagonal lines as a visual cue
+            GUIStyle gripStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 12,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new UnityColor(1f, 1f, 1f, opacity) }
+            };
+            GUI.Label(handle, "⤡", gripStyle);
         }
 
         private void InitializeGUIStyles()
@@ -708,11 +811,11 @@ namespace KitchenPlateupAP
             string line1;
             if (lease.IsGateActive)
             {
-                line1 = $"<b><color=#{titleHex}>Day Lease</color></b> � <color=#{redHex}>Lease required now!</color>";
+                line1 = $"<b><color=#{titleHex}>Day Lease</color></b> – <color=#{redHex}>Lease required now!</color>";
             }
             else if (!lease.HasFutureRequirement)
             {
-                line1 = $"<b><color=#{titleHex}>Day Lease</color></b> � <color=#{greenHex}>All leases covered</color>";
+                line1 = $"<b><color=#{titleHex}>Day Lease</color></b> – <color=#{greenHex}>All leases covered</color>";
             }
             else
             {
@@ -721,7 +824,7 @@ namespace KitchenPlateupAP
                 string dayText = days == 0
                     ? "Lease needed after today"
                     : $"{days} day{plural} until lease is needed";
-                line1 = $"<b><color=#{titleHex}>Day Lease</color></b> � {dayText}";
+                line1 = $"<b><color=#{titleHex}>Day Lease</color></b> – {dayText}";
             }
 
             string line2 = $"Have <color=#{haveHex}>{lease.Owned}</color> / Need <color=#{needHex}>{lease.Required}</color>";

@@ -194,8 +194,10 @@ namespace KitchenPlateupAP
         ///   (multiple leases possible since item ID 15 can appear multiple times).
         /// Goal 0 / dish-specific: binary — 0 for the free first interval, then 1
         ///   for the remainder of the run (each dish has exactly one lease item).
-        /// Goals 1/2: floor(highestDayReached / interval) high-water mark —
+        /// Goal 1: floor(highestDayReached / interval) high-water mark —
         ///   first <paramref name="interval"/> days always free.
+        /// Goal 2: floor(currentDay / interval) per-run gate — resets each dish run
+        ///   since each dish starts from day 1 independently.
         /// </summary>
         private static int ComputeRequiredLeases(
             int goal,
@@ -223,8 +225,17 @@ namespace KitchenPlateupAP
 
                 raw = baseOffset + withinRun;
             }
+            else if (goal == 2)
+            {
+                // Each dish run is independent and starts at day 1, so gate on the
+                // current run's day rather than the all-time high-water mark.
+                // This prevents runs on a new dish from being immediately blocked
+                // because a previous dish already reached a high day count.
+                raw = currentDay / interval;
+            }
             else
             {
+                // Goal 1: accumulate total days globally, so high-water mark is correct.
                 raw = highestDayReached / interval;
             }
 

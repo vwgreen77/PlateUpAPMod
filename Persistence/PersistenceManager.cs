@@ -57,6 +57,39 @@ namespace KitchenPlateupAP
         public int NextCheckIndex;
     }
 
+    /// <summary>
+    /// Persists the set of appliance GDO IDs that currently live in the AP garage.
+    /// Items are added when received from the multiworld and survive game restarts.
+    /// The list is cleared when the server identity changes.
+    /// Capped at 40 slots — oldest entry evicted when over capacity.
+    /// </summary>
+    [Serializable]
+    public class GarageState
+    {
+        public const int MaxSlots = 40;
+
+        /// <summary>Ordered list of appliance GDO IDs in the garage (oldest first).</summary>
+        public List<int> ApplianceGDOs = new List<int>();
+
+        /// <summary>
+        /// Adds <paramref name="gdoId"/> only if it isn't already present.
+        /// Evicts the oldest entry when the list exceeds <see cref="MaxSlots"/>.
+        /// </summary>
+        /// <returns><c>true</c> if the item was added; <c>false</c> if it was a duplicate.</returns>
+        public bool TryAdd(int gdoId)
+        {
+            if (ApplianceGDOs.Contains(gdoId))
+                return false;
+
+            ApplianceGDOs.Add(gdoId);
+
+            while (ApplianceGDOs.Count > MaxSlots)
+                ApplianceGDOs.RemoveAt(0);
+
+            return true;
+        }
+    }
+
     internal static class PersistenceManager
     {
         private static string RootPath => Path.Combine(Application.persistentDataPath, "PlateupAPState");
@@ -73,6 +106,8 @@ namespace KitchenPlateupAP
         private static string DishDayFile(RunIdentity id) =>
             Path.Combine(RootPath, $"dishdays_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}.json");
         private static string IdentityFile => Path.Combine(RootPath, "last_identity.json");
+        private static string GarageFile(RunIdentity id) =>
+            Path.Combine(RootPath, $"garage_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}.json");
 
         private static RunIdentity _loadedIdentity;
 
@@ -193,7 +228,7 @@ namespace KitchenPlateupAP
             }
             catch (Exception ex)
             {
-                Debug.LogError("[PlateupAP][Persistence] Failed reading trap card state: " + ex.Message);
+                Debug.LogError("[PlateupAP][Persistence] Failed reading trap cards: " + ex.Message);
                 return null;
             }
         }
@@ -207,37 +242,7 @@ namespace KitchenPlateupAP
             }
             catch (Exception ex)
             {
-                Debug.LogError("[PlateupAP][Persistence] Failed saving trap card state: " + ex.Message);
-            }
-        }
-
-        public static DishDayCountState LoadDishDayCounts(RunIdentity id)
-        {
-            EnsureDirectory();
-            var path = DishDayFile(id);
-            if (!File.Exists(path))
-                return null;
-            try
-            {
-                return JsonConvert.DeserializeObject<DishDayCountState>(File.ReadAllText(path));
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError("[PlateupAP][Persistence] Failed reading dish day counts: " + ex.Message);
-                return null;
-            }
-        }
-
-        public static void SaveDishDayCounts(RunIdentity id, DishDayCountState state)
-        {
-            EnsureDirectory();
-            try
-            {
-                File.WriteAllText(DishDayFile(id), JsonConvert.SerializeObject(state, Formatting.Indented));
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError("[PlateupAP][Persistence] Failed saving dish day counts: " + ex.Message);
+                Debug.LogError("[PlateupAP][Persistence] Failed saving trap cards: " + ex.Message);
             }
         }
 
@@ -294,6 +299,52 @@ namespace KitchenPlateupAP
             catch (Exception ex)
             {
                 Debug.LogError("[PlateupAP][Persistence] Failed saving blueprint check state: " + ex.Message);
+            }
+        }
+
+        // ── Garage State ─────────────────────────────────────────────────────
+
+        public static GarageState LoadGarage(RunIdentity id)
+        {
+            EnsureDirectory();
+            var path = GarageFile(id);
+            if (!File.Exists(path))
+                return new GarageState();
+            try
+            {
+                return JsonConvert.DeserializeObject<GarageState>(File.ReadAllText(path)) ?? new GarageState();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[PlateupAP][Persistence] Failed reading garage state: " + ex.Message);
+                return new GarageState();
+            }
+        }
+
+        public static void SaveGarage(RunIdentity id, GarageState state)
+        {
+            EnsureDirectory();
+            try
+            {
+                File.WriteAllText(GarageFile(id), JsonConvert.SerializeObject(state, Formatting.Indented));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[PlateupAP][Persistence] Failed saving garage state: " + ex.Message);
+            }
+        }
+
+        public static void ClearGarage(RunIdentity id)
+        {
+            EnsureDirectory();
+            try
+            {
+                var path = GarageFile(id);
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[PlateupAP][Persistence] Failed clearing garage state: " + ex.Message);
             }
         }
     }
