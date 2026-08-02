@@ -47,6 +47,7 @@ namespace KitchenPlateupAP
             public int Required;
             public int DaysUntilNextRequirement;
             public bool IsGateActive;
+            public string CurrentDishName; // non-null only in dish-specific mode
 
             public bool HasFutureRequirement => DaysUntilNextRequirement >= 0;
         }
@@ -611,6 +612,20 @@ namespace KitchenPlateupAP
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Returns true when goal == 2 and the dish has a checked location at dayTarget,
+        /// meaning the player survived to the target day while this dish was active.
+        /// </summary>
+        private static bool IsDishCompletedForGoal2(string dishName)
+        {
+            if (Mod.Goal != 2) return false;
+            var session = ArchipelagoConnectionManager.Session;
+            if (session?.Locations?.AllLocationsChecked == null) return false;
+            if (!ProgressionMapping.dish_id_lookup.TryGetValue(dishName, out int dishId)) return false;
+            int targetLocId = (dishId * 10000) + Mod.DayTarget;
+            return session.Locations.AllLocationsChecked.Contains(targetLocId);
+        }
+
         private void DrawGlobalFooterHUD(float opacity, Rect footerRect)
         {
             float padding = 8f;
@@ -624,11 +639,13 @@ namespace KitchenPlateupAP
             string titleHex = ColorUtility.ToHtmlStringRGBA(new UnityColor(FooterTitle.r, FooterTitle.g, FooterTitle.b, opacity));
             string greenHex = ColorUtility.ToHtmlStringRGBA(new UnityColor(FooterGreen.r, FooterGreen.g, FooterGreen.b, opacity));
             string redHex = ColorUtility.ToHtmlStringRGBA(new UnityColor(FooterRed.r, FooterRed.g, FooterRed.b, opacity));
+            string yellowHex = ColorUtility.ToHtmlStringRGBA(new UnityColor(FooterTitle.r, FooterTitle.g, FooterTitle.b, opacity));
 
             string dishName = ResolveFirstDishName();
             bool? unlocked = IsDishUnlockedLocal(dishName);
             bool firstUnlocked = unlocked ?? !LockedDishes.IsLockingEnabled();
-            string dishColor = firstUnlocked ? greenHex : redHex;
+            bool firstCompleted = IsDishCompletedForGoal2(dishName);
+            string dishColor = firstCompleted ? yellowHex : (firstUnlocked ? greenHex : redHex);
 
             string line1 = $"<b><color=#{titleHex}>First dish:</color></b> <color=#{dishColor}>{dishName}</color>";
 
@@ -664,8 +681,9 @@ namespace KitchenPlateupAP
                 float itemY = 0f;
                 foreach (var (name, unlockedStatus) in dishStatuses)
                 {
+                    bool isCompleted = IsDishCompletedForGoal2(name);
                     bool isUnlocked = unlockedStatus ?? (!LockedDishes.IsLockingEnabled());
-                    string colorHex = isUnlocked ? greenHex : redHex;
+                    string colorHex = isCompleted ? yellowHex : (isUnlocked ? greenHex : redHex);
                     string dishLine = $"<color=#{colorHex}>{name}</color>";
                     GUI.Label(new Rect(0f, itemY, scrollRect.width - 20f, lineHeight), dishLine, footerStyle);
                     itemY += lineHeight;
@@ -778,7 +796,11 @@ namespace KitchenPlateupAP
             string haveHex = ColorUtility.ToHtmlStringRGBA(new UnityColor(1f, 1f, 1f, opacity));
             string needHex = ColorUtility.ToHtmlStringRGBA(new UnityColor(FooterRed.r, FooterRed.g, FooterRed.b, opacity));
 
-            return $"<b><color=#{titleHex}>Day Lease required</color></b>  Day {lease.CurrentDay}: have <color=#{haveHex}>{lease.Owned}</color> / need <color=#{needHex}>{lease.Required}</color>";
+            string leaseLabel = lease.CurrentDishName != null
+                ? $"{lease.CurrentDishName} Day Lease required"
+                : "Day Lease required";
+
+            return $"<b><color=#{titleHex}>{leaseLabel}</color></b>  Day {lease.CurrentDay}: have <color=#{haveHex}>{lease.Owned}</color> / need <color=#{needHex}>{lease.Required}</color>";
         }
 
         private void DrawLeaseCountdownBadge(float opacity)
@@ -808,14 +830,19 @@ namespace KitchenPlateupAP
             string haveHex = ColorUtility.ToHtmlStringRGBA(new UnityColor(1f, 1f, 1f, opacity));
             string needHex = lease.IsGateActive ? redHex : greenHex;
 
+            // Prefix the lease type label with the dish name when in dish-specific mode
+            string leaseTypeLabel = lease.CurrentDishName != null
+                ? $"{lease.CurrentDishName} Day Lease"
+                : "Day Lease";
+
             string line1;
             if (lease.IsGateActive)
             {
-                line1 = $"<b><color=#{titleHex}>Day Lease</color></b> – <color=#{redHex}>Lease required now!</color>";
+                line1 = $"<b><color=#{titleHex}>{leaseTypeLabel}</color></b> – <color=#{redHex}>Lease required now!</color>";
             }
             else if (!lease.HasFutureRequirement)
             {
-                line1 = $"<b><color=#{titleHex}>Day Lease</color></b> – <color=#{greenHex}>All leases covered</color>";
+                line1 = $"<b><color=#{titleHex}>{leaseTypeLabel}</color></b> – <color=#{greenHex}>All leases covered</color>";
             }
             else
             {
@@ -824,7 +851,7 @@ namespace KitchenPlateupAP
                 string dayText = days == 0
                     ? "Lease needed after today"
                     : $"{days} day{plural} until lease is needed";
-                line1 = $"<b><color=#{titleHex}>Day Lease</color></b> – {dayText}";
+                line1 = $"<b><color=#{titleHex}>{leaseTypeLabel}</color></b> – {dayText}";
             }
 
             string line2 = $"Have <color=#{haveHex}>{lease.Owned}</color> / Need <color=#{needHex}>{lease.Required}</color>";
@@ -849,82 +876,30 @@ namespace KitchenPlateupAP
         private bool TryGetLeaseStatus(out LeaseStatus status)
         {
             status = default;
-            try
-            {
-                var world = World.DefaultGameObjectInjectionWorld;
-                if (world == null)
-                {
-                    return false;
-                }
-
-                var em = world.EntityManager;
-                bool inKitchen = em.CreateEntityQuery(typeof(SKitchenMarker)).CalculateEntityCount() > 0;
-                if (!inKitchen)
-                {
-                    return false;
-                }
-
-                bool isPrep = em.CreateEntityQuery(typeof(SIsNightTime)).CalculateEntityCount() > 0;
-                if (!isPrep)
-                {
-                    return false;
-                }
-
-                var dayQuery = em.CreateEntityQuery(typeof(SDay));
-                if (dayQuery.CalculateEntityCount() == 0)
-                {
-                    return false;
-                }
-
-                int currentDay = dayQuery.GetSingleton<SDay>().Day;
-                if (currentDay < 1)
-                {
-                    return false;
-                }
-
-                var session = ArchipelagoConnectionManager.Session;
-                if (!ArchipelagoConnectionManager.ConnectionSuccessful ||
-                    session == null ||
-                    session.Items == null ||
-                    session.Items.AllItemsReceived == null)
-                {
-                    return false;
-                }
-
-                int owned = session.Items.AllItemsReceived.Count(i => (int)i.ItemId == 15);
-                int goal = TryReadModInt("goal", true, 0);
-                int interval = Mathf.Clamp(TryReadModInt("dayLeaseInterval", true, 5), 1, 30);
-                int overallDaysCompleted = goal == 1 ? TryReadModInt("overallDaysCompleted", true, 0) : 0;
-                int timesFranchised = TryReadModInt("timesFranchised", false, 1);
-
-                int required = ComputeRequiredLeaseCount(goal, interval, currentDay, overallDaysCompleted, timesFranchised);
-
-                WarningLevel warning = WarningLevel.Safe;
-                var warnQuery = em.CreateEntityQuery(typeof(SStartDayWarnings));
-                if (warnQuery.CalculateEntityCount() > 0)
-                {
-                    warning = warnQuery.GetSingleton<SStartDayWarnings>().SellingRequiredAppliance;
-                }
-
-                int daysUntilNext = ComputeDaysUntilNextRequirement(goal, interval, currentDay, overallDaysCompleted, required, timesFranchised);
-
-                status = new LeaseStatus
-                {
-                    IsPrepPhase = isPrep,
-                    CurrentDay = currentDay,
-                    LeaseInterval = interval,
-                    Owned = owned,
-                    Required = required,
-                    DaysUntilNextRequirement = daysUntilNext,
-                    IsGateActive = warning == WarningLevel.Error || required > owned
-                };
-                return true;
-            }
-            catch
-            {
-                status = default;
+            var cached = LeaseRequirementSystem.LastStatus;
+            if (!cached.IsValid || !cached.IsPrepPhase)
                 return false;
+
+            string dishName = null;
+            if (Mod.DayLeaseMode == 1)
+            {
+                int dishId = Mod.Instance?.ActiveDishId ?? 0;
+                if (dishId != 0)
+                    ProgressionMapping.dishDictionary.TryGetValue(dishId, out dishName);
             }
+
+            status = new LeaseStatus
+            {
+                IsPrepPhase = cached.IsPrepPhase,
+                CurrentDay = cached.CurrentDay,
+                LeaseInterval = Mod.DayLeaseInterval,
+                Owned = cached.Owned,
+                Required = cached.Required,
+                DaysUntilNextRequirement = cached.DaysUntilNext,
+                IsGateActive = cached.IsGateActive,
+                CurrentDishName = dishName,
+            };
+            return true;
         }
 
         private static int TryReadModInt(string fieldName, bool isStatic, int fallback)

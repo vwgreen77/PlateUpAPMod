@@ -49,7 +49,7 @@ namespace KitchenPlateupAP
     {
         public const string MOD_GUID = "com.caz.plateupap";
         public const string MOD_NAME = "PlateupAP";
-        public const string MOD_VERSION = "0.2.6.4";
+        public const string MOD_VERSION = "0.2.6.5";
         public const string MOD_AUTHOR = "Caz";
         public const string MOD_GAMEVERSION = ">=1.1.9";
         public static int TOTAL_SCENES_LOADED = 0;
@@ -134,8 +134,9 @@ namespace KitchenPlateupAP
 
 		public static void ResetGarageRandomApplianceCount() => _garageRandomApplianceCountThisSession = 0;
 
-		// Counts from slot data (defaults per spec = 5)
-		private static int playerSpeedUpgradeCount = 5;
+        // Counts from slot data (defaults per spec = 5)
+        private static int playerSpeedUpgradeCount = 0;
+        public static bool SlotDataLoaded { get; private set; } = false;
         private static int applianceSpeedUpgradeCount = 5;
 
         // Static day cycle and spawn state.
@@ -206,7 +207,7 @@ namespace KitchenPlateupAP
         private static bool prepLogDone = false;
         private static bool sessionNotInitLogged = false;
         private bool itemsSpawnedThisRun = false;
-        private static Dictionary<int, float> playerBaseSpeeds = new Dictionary<int, float>();
+        public static Dictionary<int, float> playerBaseSpeeds = new Dictionary<int, float>();
         private int currentDishDayCount = 0;
         private int dishIdTrackedForDayCount = 0;
         private int lastCardSyncDishId = 0;
@@ -795,6 +796,7 @@ namespace KitchenPlateupAP
                     playerSpeedUpgradeCount = value;
                     Logger.LogInfo($"[PlateupAP] Player Speed Upgrade Count: {playerSpeedUpgradeCount}");
                     ApplyPlayerSpeedConfig();
+                    SlotDataLoaded = true;
                 }
                 else
                 {
@@ -1447,6 +1449,17 @@ namespace KitchenPlateupAP
                 EnsureDishLockingBaseline();
                 ApplyGroupSizeOverride();
 
+                var franchiseProgress = PersistenceManager.LoadFranchiseProgress(currentIdentity);
+                if (franchiseProgress != null)
+                {
+                    timesFranchised = franchiseProgress.TimesFranchised;
+                    overallDaysCompleted = franchiseProgress.OverallDaysCompleted;
+                    highestOverallDayReached = franchiseProgress.HighestOverallDayReached;
+                    overallStarsEarned = franchiseProgress.OverallStarsEarned;
+                    dayID = ComputeRunBaseOffset(timesFranchised);
+                    Logger.LogInfo($"[Persistence] Loaded franchise progress: franchises={timesFranchised}, days={overallDaysCompleted}, stars={overallStarsEarned}");
+                }
+
                 if (World != null)
                 {
 
@@ -1742,16 +1755,7 @@ namespace KitchenPlateupAP
             inLobby = currentLobbyState;
             wasInLobbyLastFrame = currentLobbyState;
 
-			if (spawnQueue.Count == 0 && !itemsQueuedThisLobby)
-			{
-				if (!AllowSaveFileEditing)
-				{
-					QueueItemsFromReceivedPool(itemsKeptPerRun);
-					Logger.LogInfo($"[Lobby] {spawnQueue.Count} items queued for next run.");
-				}
-			}
-
-			if (inLobby)
+            if (inLobby)
             {
                 if (!itemsQueuedThisLobby)
                 {
@@ -1760,8 +1764,11 @@ namespace KitchenPlateupAP
 
                     if (spawnQueue.Count == 0)
                     {
-                        QueueItemsFromReceivedPool(itemsKeptPerRun);
-                        Logger.LogInfo($"[Lobby] {spawnQueue.Count} items queued for next run.");
+                        if (!AllowSaveFileEditing)
+                        {
+                            QueueItemsFromReceivedPool(itemsKeptPerRun);
+                            Logger.LogInfo($"[Lobby] {spawnQueue.Count} items queued for next run.");
+                        }
                     }
                     else
                     {
@@ -1895,6 +1902,18 @@ namespace KitchenPlateupAP
                 session.Locations.CompleteLocationChecks(franchiseTimesId);
                 dayID = ComputeRunBaseOffset(timesFranchised);
                 Logger.LogInfo($"[Franchise Goal] Franchise completion recorded. Total: {timesFranchised}, sent check ID={franchiseTimesId}, next run base={dayID}");
+
+                if (currentIdentity != null)
+                {
+                    var state = new FranchiseProgressState
+                    {
+                        TimesFranchised = timesFranchised,
+                        OverallDaysCompleted = overallDaysCompleted,
+                        HighestOverallDayReached = highestOverallDayReached,
+                        OverallStarsEarned = overallStarsEarned
+                    };
+                    PersistenceManager.SaveFranchiseProgress(currentIdentity, state);
+                }
 
                 if (timesFranchised >= franchiseCount && franchiseCount > 0)
                 {
@@ -2033,6 +2052,12 @@ namespace KitchenPlateupAP
 
                     case "OvertimeDayLease":
                         Logger.LogInfo("[OnItemReceived] Received Overtime Day Lease");
+                        KitchenPlateupAP.LeaseRequirementSystem.TriggerRefresh();
+                        pendingSpawnState.PendingItemIDs.Remove(checkId);
+                        return;
+
+                    case "DishLease":
+                        Logger.LogInfo($"[OnItemReceived] Received Dish Day Lease (ID {checkId})");
                         KitchenPlateupAP.LeaseRequirementSystem.TriggerRefresh();
                         pendingSpawnState.PendingItemIDs.Remove(checkId);
                         return;
@@ -2352,8 +2377,22 @@ namespace KitchenPlateupAP
 				return;
 			}
 
-			// Non-speed items -> add to queue and persist
-			receivedItemPool.Add(checkId);
+            // ── Day Lease tokens — counted by LeaseRequirementSystem, never spawned ──
+            // Global lease = 15, dish-specific = 31xxx range, overtime = 32000
+            if (checkId == 15 || (checkId >= 31000 && checkId <= 31999) || checkId == 32000)
+            {
+                Logger.LogInfo($"[OnItemReceived] Lease token ID {checkId} received. Counted by gate system; no spawn needed.");
+                pendingSpawnState.PendingItemIDs.Remove(checkId);
+                return;
+            }
+
+            // Non-speed items -> add to queue and persist
+            receivedItemPool.Add(checkId);
+
+            // Non-speed items -> add to queue and persist   ← also remove this duplicate line below
+
+            // Non-speed items -> add to queue and persist
+            receivedItemPool.Add(checkId);
 
 			// Non-speed items -> add to queue and persist
 			receivedItemPool.Add(checkId);
@@ -3341,7 +3380,7 @@ namespace KitchenPlateupAP
                     }
 
                     // instant mode: clamp once at prep start (existing behaviour)
-                    if (moneyCapActivation == 0 && !moneyClampedThisPrep)
+                    if (MoneyCapEnabled && moneyCapActivation == 0 && !moneyClampedThisPrep)
                     {
                         ClampMoneyToCap();
                         moneyClampedThisPrep = true;
@@ -3419,8 +3458,11 @@ namespace KitchenPlateupAP
                 }
                 else if (goal == 1)
                 {
-                    // Only advance if this SDay hasn't been completed before
-                    int dayLocID = 110000 + gameDay;
+                    // Map to the next sequential global day slot, not the per-run SDay.
+                    // Using SDay caused days 1-N of a new run to collide with already-checked
+                    // locations from a prior run (e.g. run 2 day 1 == run 1 day 1 == loc 110001).
+                    int nextGlobalDay = overallDaysCompleted + 1;
+                    int dayLocID = 110000 + nextGlobalDay;
                     bool alreadySent = session.Locations.AllLocationsChecked.Contains(dayLocID);
 
                     if (!alreadySent)
@@ -3450,10 +3492,10 @@ namespace KitchenPlateupAP
                     }
                     else
                     {
-                        Logger.LogInfo($"[Day Goal] SDay={gameDay} already checked (loc={dayLocID}), skipping increment.");
+                        Logger.LogInfo($"[Day Goal] Global day slot {nextGlobalDay} (SDay={gameDay}) already checked (loc={dayLocID}), skipping increment.");
                     }
 
-                    // Always update the high-water mark
+                    // Always update the high-water mark (still needed for lease calculations)
                     if (gameDay > highestOverallDayReached)
                         highestOverallDayReached = gameDay;
 
@@ -3508,7 +3550,7 @@ namespace KitchenPlateupAP
 
                     // Check goal after dish locations are up-to-date, regardless of
                     // whether the day-counter location was new this frame.
-                    if (overallDaysCompleted >= dayTarget)
+                    if (gameDay >= dayTarget) 
                     {
                         int dishesAtTarget = CountDishesCompletedAtDayTarget();
                         Logger.LogInfo($"[Dish Day Goal] Reached day_target={dayTarget}. Dishes at day {dayTarget}: {dishesAtTarget}, required: {dishGoalCount}");
@@ -3529,22 +3571,30 @@ namespace KitchenPlateupAP
                 }
             }
         }
-        
+
 
         private void DoDishChecks(int dayNumber)
         {
             if (checksDisabled)
                 return;
 
-            if (!ProgressionMapping.dishDictionary.TryGetValue(DishId, out string dishName))
+            // Add this check
+            if (DishId == 0)
             {
-                Logger.LogWarning($"[Dish Check] Dish ID {DishId} not found in dictionary.");
+                Logger.LogWarning($"[Dish Check] DishId is 0, skipping check for day {dayNumber}.");
                 return;
             }
 
-            if (!ProgressionMapping.dish_id_lookup.TryGetValue(dishName, out int dishID))
+            // Add this check
+            if (ProgressionMapping.dishDictionary == null)
             {
-                Logger.LogWarning($"[Dish Check] Dish name '{dishName}' not found in lookup.");
+                Logger.LogError($"[Dish Check] dishDictionary is null, skipping check for day {dayNumber}.");
+                return;
+            }
+
+            if (!ProgressionMapping.dishDictionary.TryGetValue(DishId, out string dishName))
+            {
+                Logger.LogWarning($"[Dish Check] Dish ID {DishId} not found in dictionary.");
                 return;
             }
 
@@ -3567,7 +3617,7 @@ namespace KitchenPlateupAP
                 return;
             }
 
-            int dishCheckID = (dishID * 10000) + currentDishDayCount;
+            int dishCheckID = (DishId * 10000) + currentDishDayCount;
 
             // Skip if already checked (idempotent)
             if (session.Locations.AllLocationsChecked.Contains(dishCheckID))
@@ -4137,6 +4187,7 @@ namespace KitchenPlateupAP
         internal static int OvertimeDays => overtimeDays;
         internal static IReadOnlyList<string> SelectedDishes => selectedDishes;
         internal static int DishGoalCount => dishGoalCount;
+        internal static int DayTarget => dayTarget;
 
         internal int ActiveDishId => DishId;
 

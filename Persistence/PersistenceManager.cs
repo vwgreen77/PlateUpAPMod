@@ -90,6 +90,15 @@ namespace KitchenPlateupAP
         }
     }
 
+    [Serializable]
+    public class FranchiseProgressState
+    {
+        public int TimesFranchised;
+        public int OverallDaysCompleted;
+        public int HighestOverallDayReached;
+        public int OverallStarsEarned;
+    }
+
     internal static class PersistenceManager
     {
         private static string RootPath => Path.Combine(Application.persistentDataPath, "PlateupAPState");
@@ -108,6 +117,8 @@ namespace KitchenPlateupAP
         private static string IdentityFile => Path.Combine(RootPath, "last_identity.json");
         private static string GarageFile(RunIdentity id) =>
             Path.Combine(RootPath, $"garage_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}.json");
+        private static string FranchiseProgressFile(RunIdentity id) =>
+            Path.Combine(RootPath, $"{id}_franchise_progress.json");
 
         private static RunIdentity _loadedIdentity;
 
@@ -243,6 +254,36 @@ namespace KitchenPlateupAP
             catch (Exception ex)
             {
                 Debug.LogError("[PlateupAP][Persistence] Failed saving trap cards: " + ex.Message);
+            }
+        }
+
+        public static FranchiseProgressState LoadFranchiseProgress(RunIdentity id)
+        {
+            EnsureDirectory();
+            var path = FranchiseProgressFile(id);
+            if (!File.Exists(path))
+                return null;
+            try
+            {
+                return JsonConvert.DeserializeObject<FranchiseProgressState>(File.ReadAllText(path));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[PlateupAP][Persistence] Failed reading franchise progress: " + ex.Message);
+                return null;
+            }
+        }
+
+        public static void SaveFranchiseProgress(RunIdentity id, FranchiseProgressState state)
+        {
+            EnsureDirectory();
+            try
+            {
+                File.WriteAllText(FranchiseProgressFile(id), JsonConvert.SerializeObject(state, Formatting.Indented));
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[PlateupAP][Persistence] Failed saving franchise progress: " + ex.Message);
             }
         }
 

@@ -792,6 +792,25 @@ namespace KitchenPlateupAP
             { 15,    "DayLease" },
             { 32000, "OvertimeDayLease" },
 
+            // ── Dish-specific lease items (dish_id range 101-117) ──────────────────
+            { 31101, "DishLease" },  // Salad
+            { 31102, "DishLease" },  // Steak
+            { 31103, "DishLease" },  // Burger
+            { 31104, "DishLease" },  // Coffee
+            { 31105, "DishLease" },  // Pizza
+            { 31106, "DishLease" },  // Dumplings
+            { 31107, "DishLease" },  // Turkey
+            { 31108, "DishLease" },  // Pie
+            { 31109, "DishLease" },  // Cakes
+            { 31110, "DishLease" },  // Spaghetti
+            { 31111, "DishLease" },  // Fish
+            { 31112, "DishLease" },  // Tacos
+            { 31113, "DishLease" },  // Hot Dogs
+            { 31114, "DishLease" },  // Breakfast
+            { 31115, "DishLease" },  // Stir Fry
+            { 31116, "DishLease" },  // Sandwiches
+            { 31117, "DishLease" },  // Sundaes
+
             // ── Economy ────────────────────────────────────────────────────────────
             { 16,    "MoneyCapIncrease" },
             { 40006, "Coin" },          // apworld v0.3+
@@ -819,6 +838,7 @@ namespace KitchenPlateupAP
             { 30,    "RerollToken" },
             { 31,    "ExtraLife" },
             { 100,   "DecorationUnlock" },
+            { 40007, "DecorationUnlock" },  // apworld v0.3+
         };
 
         // Convenience look-ups so callers can match by effect name without knowing the ID

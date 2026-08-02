@@ -17,70 +17,88 @@ namespace KitchenPlateupAP
     [HarmonyPatch(typeof(Archipelago.MultiClient.Net.Converters.PermissionsEnumConverter), "ReadJson")]
     internal static class Patch_PermissionsEnumConverter_ReadJson
     {
-        // Prefix returns false when we fully handle deserialization ourselves.
         static bool Prefix(
             ref object __result,
             JsonReader reader,
             Type objectType,
             object existingValue,
             JsonSerializer serializer)
-
         {
+            bool consumedReader = false;
+
             try
             {
-                // Let original run for raw Permissions or nullable Permissions or collections of Permissions.
+                // Let original run for native Permissions targets only.
                 if (objectType == typeof(Permissions) ||
                     objectType == typeof(Permissions?) ||
                     IsPermissionsCollection(objectType))
                 {
-                    return true; // allow original method
+                    return true;
                 }
 
-                // Snapshot token so we don't leave reader mid-stream
                 JToken token = JToken.Load(reader);
+                consumedReader = true;
 
-                // If target is List<string> (or IList<string> / string[]), we sanitize "Disabled".
                 if (IsStringList(objectType))
                 {
                     var strings = token.Type == JTokenType.Array
-                        ? token.Children().Select(t => (string)t).Where(s => s != "Disabled").ToList()
+                        ? token.Children()
+                            .Select(t => (string)t)
+                            .Where(s => !string.Equals(s, "Disabled", StringComparison.OrdinalIgnoreCase))
+                            .ToList()
                         : new List<string>();
 
-                    if (IsConcreteList(objectType))
-                    {
-                        __result = strings;
-                    }
-                    else if (objectType.IsArray)
+                    if (objectType.IsArray)
                     {
                         __result = strings.ToArray();
                     }
                     else
                     {
-                        // Try to create instance of requested collection and add
-                        var listInstance = (IList)Activator.CreateInstance(objectType);
-                        foreach (var s in strings) listInstance.Add(s);
-                        __result = listInstance;
+                        // Works for List<string>, IList<string>, IEnumerable<string>
+                        __result = strings;
                     }
 
-                    Debug.Log($"[PlateupAP][PermPatch] Sanitized string list ({strings.Count} entries).");
                     return false;
                 }
 
-                // For any other non-Permissions target: convert using an isolated serializer
-                var cleanSettings = new JsonSerializerSettings
+                var cleanSerializer = JsonSerializer.Create(new JsonSerializerSettings
                 {
-                    Converters = new List<JsonConverter>() // empty -> avoids invoking the same converter recursively
-                };
-                var cleanSerializer = JsonSerializer.Create(cleanSettings);
+                    Converters = new List<JsonConverter>()
+                });
+
                 __result = token.ToObject(objectType, cleanSerializer);
                 return false;
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[PlateupAP][PermPatch] Fallback failed for {objectType}: {ex.Message}");
-                // Let original attempt if we failed
+                Debug.LogError($"[PlateupAP][PermPatch] Failed for {objectType}: {ex.Message}");
+
+                // Critical: if we already consumed the reader, DO NOT run original.
+                if (consumedReader)
+                {
+                    __result = GetDefaultValue(objectType);
+                    return false;
+                }
+
                 return true;
             }
+        }
+
+        private static object GetDefaultValue(Type t)
+        {
+            if (t == typeof(string))
+                return string.Empty;
+
+            if (t.IsValueType)
+                return Activator.CreateInstance(t);
+
+            if (t.IsArray)
+                return Array.CreateInstance(t.GetElementType(), 0);
+
+            if (typeof(IEnumerable<string>).IsAssignableFrom(t))
+                return new List<string>();
+
+            return null;
         }
 
         private static bool IsPermissionsCollection(Type t)
@@ -96,6 +114,7 @@ namespace KitchenPlateupAP
                 var arg = t.GetGenericArguments().FirstOrDefault();
                 return arg == typeof(Permissions);
             }
+
             return false;
         }
 
@@ -103,28 +122,25 @@ namespace KitchenPlateupAP
         {
             if (t == typeof(List<string>) || t == typeof(IList<string>) || t == typeof(IEnumerable<string>))
                 return true;
+
             if (t.IsArray && t.GetElementType() == typeof(string))
                 return true;
-            if (t.IsGenericType)
-            {
-                var ga = t.GetGenericArguments();
-                return ga.Length == 1 && ga[0] == typeof(string) &&
-                       (typeof(IList<>).MakeGenericType(typeof(string)).IsAssignableFrom(t) ||
-                        typeof(IEnumerable<>).MakeGenericType(typeof(string)).IsAssignableFrom(t));
-            }
-            return false;
-        }
 
-        private static bool IsConcreteList(Type t)
-        {
-            return t == typeof(List<string>) || (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(List<>)
-                                                 && t.GetGenericArguments()[0] == typeof(string));
+            return false;
         }
     }
 
     [HarmonyPatch(typeof(DeterminePlayerSpeed), "OnUpdate")]
     public static class Patch_DeterminePlayerSpeed_OnUpdate
     {
+        // Let vanilla run always.
+        [HarmonyPrefix]
+        static bool Prefix()
+        {
+            return true;
+        }
+
+        [HarmonyPostfix]
         static void Postfix(DeterminePlayerSpeed __instance)
         {
             if (Mod.Instance == null)
@@ -133,9 +149,7 @@ namespace KitchenPlateupAP
             if (!Mod.IsSessionActive)
                 return;
 
-            if (!__instance.HasSingleton<SKitchenMarker>())
-                return;
-
+            // Apply AP movement modifiers only during day/cooking.
             if (!__instance.HasSingleton<SIsDayTime>())
                 return;
 
@@ -151,9 +165,26 @@ namespace KitchenPlateupAP
                     continue;
 
                 var player = em.GetComponentData<CPlayer>(playerEntity);
-                float slowMultiplier = Mod.Instance.GetPlayerSpeedMultiplier(playerEntity);
-                player.Speed *= Mod.movementSpeedMod * slowMultiplier;
-                em.SetComponentData(playerEntity, player);  // write the modified struct back
+                int entityKey = playerEntity.Index;
+
+                if (!Mod.playerBaseSpeeds.ContainsKey(entityKey) || Mod.playerBaseSpeeds[entityKey] <= 0f)
+                    Mod.playerBaseSpeeds[entityKey] = player.Speed;
+
+                float baseSpeed = Mod.playerBaseSpeeds[entityKey];
+                
+                float slowMultiplier = 1.0f;
+                try
+                {
+                    slowMultiplier = Mod.Instance.GetPlayerSpeedMultiplier(playerEntity);
+                }
+                catch (Exception ex)
+                {
+                    // Log once to avoid spam, then use default multiplier
+                    UnityEngine.Debug.LogWarning($"[PlateupAP] GetPlayerSpeedMultiplier error: {ex.Message}");
+                }
+                
+                player.Speed = baseSpeed * Mod.movementSpeedMod * slowMultiplier;
+                em.SetComponentData(playerEntity, player);
             }
         }
     }

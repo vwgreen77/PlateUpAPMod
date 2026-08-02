@@ -37,6 +37,9 @@ namespace KitchenPlateupAP.Patches
             if (!Mod.AllowSaveFileEditing || !Mod.ApplianceUnlocksEnabled)
                 return;
 
+            if (GameData.Main == null)
+                return;
+
             EntityManager em = __instance.EntityManager;
 
             // On identity change: destroy ALL CCrateAppliance entities (vanilla + AP)

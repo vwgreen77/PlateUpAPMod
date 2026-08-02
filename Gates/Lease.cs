@@ -55,7 +55,7 @@ namespace KitchenPlateupAP
             int goal = Mod.Goal;
             int interval = Math.Max(1, Math.Min(30, Mod.DayLeaseInterval));
             int leaseMode = Mod.DayLeaseMode;    // 0 = global, 1 = dish_specific
-            int overtimeDays = Mod.OvertimeDays;    // days > 15 covered by overtime leases (0 = none)
+            int overtimeDays = Mod.OvertimeDays;
             int highestDay = (goal == 1 || goal == 2) ? Mod.HighestOverallDayReached : 0;
             int timesFranchised = Mod.Instance?.TimesFranchised ?? 1;
 
@@ -65,12 +65,16 @@ namespace KitchenPlateupAP
             int leaseCount;
             int requiredLeases;
 
+            // ADD LOGGING HERE
+            Mod.Logger.LogInfo($"[LeaseGate] Day={currentDay}, Goal={goal}, Mode={leaseMode}, Interval={interval}");
+
             // ── Branch: goal 2 + dish_specific — never gated ─────────────────
             if (leaseMode == 1 && goal == 2)
             {
                 gateActive = false;
                 leaseCount = 0;
                 requiredLeases = 0;
+                Mod.Logger.LogInfo($"[LeaseGate] Goal 2 + dish_specific: gate disabled");
             }
             // ── Branch: global mode — "Day Lease" (ID 15) gates all days ─────
             else if (leaseMode == 0)
@@ -78,6 +82,7 @@ namespace KitchenPlateupAP
                 leaseCount = allItems.Count(item => (int)item.ItemId == 15);
                 requiredLeases = ComputeRequiredLeases(goal, currentDay, highestDay, timesFranchised, interval);
                 gateActive = requiredLeases > 0 && leaseCount < requiredLeases;
+                Mod.Logger.LogInfo($"[LeaseGate] Global mode: owned={leaseCount}, required={requiredLeases}, gateActive={gateActive}");
             }
             // ── Branch: dish_specific, goals 0/1 ─────────────────────────────
             else
@@ -90,6 +95,7 @@ namespace KitchenPlateupAP
                     requiredLeases = 0;
 
                     string currentDishName = Mod.Instance?.GetDishName(Mod.Instance.ActiveDishId);
+                    Mod.Logger.LogInfo($"[LeaseGate] Dish-specific mode: currentDish='{currentDishName}' (ID={Mod.Instance?.ActiveDishId})");
 
                     if (!string.IsNullOrWhiteSpace(currentDishName) && currentDishName != "Unknown"
                         && ProgressionMapping.dishLeaseItemIds.TryGetValue(currentDishName, out int leaseItemId))
@@ -98,12 +104,23 @@ namespace KitchenPlateupAP
                         bool dishIsInScope = Mod.DishLeaseScope == 0
                             || Mod.SelectedDishes.Contains(currentDishName, StringComparer.OrdinalIgnoreCase);
 
+                        Mod.Logger.LogInfo($"[LeaseGate] Dish '{currentDishName}' leaseItemId={leaseItemId}, inScope={dishIsInScope}");
+
                         if (dishIsInScope)
                         {
                             leaseCount = allItems.Count(item => (int)item.ItemId == leaseItemId);
                             requiredLeases = ComputeRequiredLeases(goal, currentDay, highestDay, timesFranchised, interval, true);
                             gateActive = requiredLeases > 0 && leaseCount < requiredLeases;
+                            Mod.Logger.LogInfo($"[LeaseGate] Dish-specific: owned={leaseCount}, required={requiredLeases}, gateActive={gateActive}");
                         }
+                        else
+                        {
+                            Mod.Logger.LogInfo($"[LeaseGate] Dish '{currentDishName}' not in scope; gate disabled");
+                        }
+                    }
+                    else
+                    {
+                        Mod.Logger.LogWarning($"[LeaseGate] Could not get dish lease ID for '{currentDishName}'; gate disabled");
                     }
                 }
                 else
@@ -192,8 +209,8 @@ namespace KitchenPlateupAP
         /// Required leases for global mode or dish-specific days 1–15.
         /// Goal 0 / global: segment-based within the 15-day franchise cycle
         ///   (multiple leases possible since item ID 15 can appear multiple times).
-        /// Goal 0 / dish-specific: binary — 0 for the free first interval, then 1
-        ///   for the remainder of the run (each dish has exactly one lease item).
+        /// Goal 0 / dish-specific: interval-based scaling — 0 for the free first interval,
+        ///   then 1 lease per subsequent interval (scales with day progression).
         /// Goal 1: floor(highestDayReached / interval) high-water mark —
         ///   first <paramref name="interval"/> days always free.
         /// Goal 2: floor(currentDay / interval) per-run gate — resets each dish run
@@ -214,16 +231,26 @@ namespace KitchenPlateupAP
                     return 0;
 
                 if (isDishSpecific)
-                    return currentDay <= interval ? 0 : 1;
+                {
+                    // For dish-specific mode: scale with intervals
+                    // Day 1-interval: 0 leases, Day (interval+1)-(2*interval): 1 lease, etc.
+                    if (currentDay <= interval)
+                        return 0;
+                    
+                    raw = (currentDay - 1) / interval;
+                }
+                else
+                {
+                    // Global mode: accumulate across franchises
+                    int segmentsPerFranchise = (int)Math.Ceiling(15.0 / interval);
+                    int baseOffset = segmentsPerFranchise * Math.Max(0, timesFranchised - 1);
+                    int withinRun = Math.Min(segmentsPerFranchise - 1, (currentDay - 1) / interval);
 
-                int segmentsPerFranchise = (int)Math.Ceiling(15.0 / interval);
-                int baseOffset = segmentsPerFranchise * Math.Max(0, timesFranchised - 1);
-                int withinRun = Math.Min(segmentsPerFranchise - 1, (currentDay - 1) / interval);
+                    if (timesFranchised == 1 && currentDay <= interval)
+                        return 0;
 
-                if (timesFranchised == 1 && currentDay <= interval)
-                    return 0;
-
-                raw = baseOffset + withinRun;
+                    raw = baseOffset + withinRun;
+                }
             }
             else if (goal == 2)
             {
