@@ -172,6 +172,7 @@ namespace KitchenPlateupAP
 
                 float baseSpeed = Mod.playerBaseSpeeds[entityKey];
                 
+                // ADD NULL SAFETY HERE:
                 float slowMultiplier = 1.0f;
                 try
                 {

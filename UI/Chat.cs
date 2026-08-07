@@ -117,12 +117,6 @@ namespace KitchenPlateupAP
         private static readonly UnityColor FooterRed = new UnityColor(0.9f, 0.2f, 0.2f, 1f);
         private static Vector2 dishesScrollPos = Vector2.zero;
 
-        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-        private static void InitOnLoad()
-        {
-            EnsureInstanceExists();
-        }
-
         private static void EnsureInstanceExists()
         {
             if (Instance != null) return;

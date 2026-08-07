@@ -5,14 +5,15 @@
 		<AssetBundlePath>UnityProject - PlateupAP\content\mod.assets</AssetBundlePath>
 		<LangVersion>8.0</LangVersion>
 		<IsPacked>true</IsPacked>
+		<Platforms>AnyCPU;x64</Platforms>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="ILRepack" Version="2.0.45">
+		<PackageReference Include="ILRepack" Version="2.0.46">
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 			<PrivateAssets>all</PrivateAssets>
 		</PackageReference>
-		<PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.45">
+		<PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.46">
 		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		  <PrivateAssets>all</PrivateAssets>
 		</PackageReference>
@@ -29,6 +30,6 @@
 		<Folder Condition="Exists('Changelogs')" Include="Changelogs\" />
 		<Folder Condition="Exists('Changelogs\Github')" Include="Changelogs\Github" />
 		<Folder Condition="Exists('Changelogs\Workshop')" Include="Changelogs\Workshop" />
+		<Folder Include="Properties\" />
 	</ItemGroup>
-	<Import Project="ILRepack.targets" />
 </Project>

@@ -554,10 +554,17 @@ namespace KitchenPlateupAP
             { 27, -778719372 },  // Sandwich - Mayo
             { 28, 368792675 },   // Sandwich - Toppers
             { 29, 641008296 },   // Club Sandwiches
-            { 30, 1879652468 },  // Sundae Toppings
-            { 31, -690833761 },  // Giant Sundaes
-            { 32, 431260200 },   // Sundae Syrups
+            { 30, DishReferences.IceCreamSundaesToppings },  // Sundae Toppings
+            { 31, DishReferences.IceCreamSundaesGiant },  // Giant Sundaes
+            { 32, DishReferences.IceCreamSundaesSyrups },   // Sundae Syrups
             { 33, DishReferences.SpaghettiBolognese }, // Spaghetti - Bolognese sauce
+            { 34, -780950614 }, // Fajitas Onions
+            { 35, -525525407 }, //Fajitas Cheese
+            { 36, -823626125 }, //Fajitas Peppers
+            { 37, 693878802 }, //Fajitas Tomatoes
+            { 38, -1438205860 }, //Fajitas Salsa
+            { 39, -960612653 }, //Fajitas Crema
+            { 40, -1315816541 }, //Fajitas Guacamole
         };
 
         public static readonly Dictionary<int, int> allDishSides = new Dictionary<int, int>()
@@ -612,9 +619,10 @@ namespace KitchenPlateupAP
             { DishReferences.HotdogBase,    new List<int> { 18 } },
             { DishReferences.BreakfastBase, new List<int> { 19, 20, 21 } },
             { DishReferences.StirFryBase,   new List<int> { 22 } },
-            { DishReferences.PomodoroBase,  new List<int> { 33 } }, // Spaghetti - Bolognese
-            { -1272159363,                  new List<int> { 23, 24, 25, 26, 27, 28, 29 } }, // Sandwiches
-            { 934171642,                    new List<int> { 30, 31, 32 } },                 // Sundaes
+            { DishReferences.PomodoroBase,  new List<int> { 33 } }, 
+            { DishReferences.SandwichBase,  new List<int> { 23, 24, 25, 26, 27, 28, 29 } }, 
+            { DishReferences.IceCreamSundaesBase, new List<int> { 30, 31, 32 } },
+            { 544487102, new List<int> { 34, 35, 36, 37, 38, 39, 40 } }, // Fajitas
         };
 
         public static readonly Dictionary<int, string> dishDictionary = new Dictionary<int, string>()
@@ -634,8 +642,9 @@ namespace KitchenPlateupAP
             { DishReferences.HotdogBase, "Hot Dogs" },
             { DishReferences.BreakfastBase, "Breakfast" },
             { DishReferences.StirFryBase, "Stir Fry" },
-            { -1272159363, "Sandwiches" },
-            { 934171642, "Sundaes" },
+            { DishReferences.SandwichBase, "Sandwiches" },
+            { DishReferences.IceCreamSundaesBase, "Sundaes" },
+            { 544487102, "Fajitas" },
         };
 
         public static readonly Dictionary<string, int> dish_id_lookup = new Dictionary<string, int>
@@ -656,7 +665,8 @@ namespace KitchenPlateupAP
             { "Breakfast", 114 },
             { "Stir Fry", 115 },
             { "Sandwiches", 116 },
-            { "Sundaes", 117 }
+            { "Sundaes", 117 },
+            { "Fajitas", 118 }
         };
 
         // Achievement identifier string -> AP location ID
@@ -758,7 +768,8 @@ namespace KitchenPlateupAP
             { "Breakfast", 30114 },
             { "Stir Fry", 30115 },
             { "Sandwiches", 30116 },
-            { "Sundaes", 30117 }
+            { "Sundaes", 30117 },
+            { "Fajitas", 30118 }
         };
 
         public static readonly Dictionary<string, int> dishLeaseItemIds = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
@@ -780,6 +791,7 @@ namespace KitchenPlateupAP
             { "Stir Fry",   31115 },
             { "Sandwiches", 31116 },
             { "Sundaes",    31117 },
+            { "Fajitas",    31118 }  
         };
 
         /// <summary>
@@ -792,7 +804,7 @@ namespace KitchenPlateupAP
             { 15,    "DayLease" },
             { 32000, "OvertimeDayLease" },
 
-            // ── Dish-specific lease items (dish_id range 101-117) ──────────────────
+            // ── Dish-specific lease items (dish_id range 101-118) ──────────────────
             { 31101, "DishLease" },  // Salad
             { 31102, "DishLease" },  // Steak
             { 31103, "DishLease" },  // Burger
@@ -810,22 +822,22 @@ namespace KitchenPlateupAP
             { 31115, "DishLease" },  // Stir Fry
             { 31116, "DishLease" },  // Sandwiches
             { 31117, "DishLease" },  // Sundaes
+            { 31118, "DishLease" },  // Fajitas
 
             // ── Economy ────────────────────────────────────────────────────────────
             { 16,    "MoneyCapIncrease" },
-            { 40006, "Coin" },          // apworld v0.3+
+            { 40006, "Coin" },
 
             // ── Starting-deck management ───────────────────────────────────────────
-            { 50002, "RemoveCard" },    // apworld v0.3+
+            { 50002, "RemoveCard" },
             { 22,    "ShopSizeIncrease" },
 
             // ── Kitchen parameter fillers (cumulative deltas) ──────────────────────
-            { 40001, "PatienceIncrease" },          // apworld v0.3+
-            { 40002, "LessCustomers" },             // apworld v0.3+
-            { 40003, "MinGroupSizeDecrease" },      // apworld v0.3+
-            { 40004, "MaxGroupSizeDecrease" },      // apworld v0.3+
-            { 40005, "MessReduction" },             // apworld v0.3+
-            // Legacy IDs kept for backwards compatibility with older apworld seeds
+            { 40001, "PatienceIncrease" },
+            { 40002, "LessCustomers" },
+            { 40003, "MinGroupSizeDecrease" },
+            { 40004, "MaxGroupSizeDecrease" },
+            { 40005, "MessReduction" },
             { 24,    "PatienceIncrease" },
             { 25,    "LessCustomers" },
             { 26,    "MinGroupSizeDecrease" },
@@ -838,7 +850,7 @@ namespace KitchenPlateupAP
             { 30,    "RerollToken" },
             { 31,    "ExtraLife" },
             { 100,   "DecorationUnlock" },
-            { 40007, "DecorationUnlock" },  // apworld v0.3+
+            { 40007, "DecorationUnlock" },
         };
 
         // Convenience look-ups so callers can match by effect name without knowing the ID

@@ -5,7 +5,6 @@ using KitchenLib.Utils;
 using KitchenPlateupAP;
 using System.Collections.Generic;
 using TMPro;
-using Unity.Entities;
 using UnityEngine;
 
 namespace PlateupAP.APPedestalChecks
@@ -53,7 +52,7 @@ namespace PlateupAP.APPedestalChecks
     }
 
     /// <summary>Tags an entity as an AP blueprint-check pedestal.</summary>
-    public struct CAPCheckPedestal : IComponentData
+    public struct CAPCheckPedestal : Unity.Entities.IComponentData
     {
         /// <summary>0-based index into the blueprint_check_ids pool.</summary>
         public int CheckIndex;

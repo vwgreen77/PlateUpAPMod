@@ -55,8 +55,8 @@ namespace KitchenPlateupAP
     }
 
     [UpdateInGroup(typeof(SimulationSystemGroup))]
-    [UpdateAfter(typeof(CreateDishOptions))]
-    [UpdateAfter(typeof(GrantUpgrades))]
+     [UpdateAfter(typeof(CreateDishOptions))]  
+     [UpdateAfter(typeof(GrantUpgrades))]     
     public class FilterDishUpgradesSystem : SystemBase
     {
         private bool _loggedThisFrame = false;
