@@ -114,7 +114,7 @@ namespace KitchenPlateupAP
             { 60001, ApplianceReferences.Hob },
             { 60002, ApplianceReferences.Countertop },
             { 60003, ApplianceReferences.SinkNormal },
-            { 60004, ApplianceReferences.PlateStackStarting },
+            { 60004, ApplianceReferences.PlateStack },           // Purchasable eight-plate stack, not the starter stack
             { 60005, ApplianceReferences.BlueprintUpgradeDesk },   // Research Desk
             { 60006, ApplianceReferences.Belt },
             { 60007, ApplianceReferences.Grabber },
