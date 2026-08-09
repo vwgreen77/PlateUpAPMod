@@ -22,6 +22,11 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<!-- Archipelago is a runtime dependency and must be deployed with the mod. -->
+		<AdditionalDLLs Include="$(TargetDir)Archipelago.MultiClient.Net.dll" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<Compile Remove="UnityProject - PlateupAP\**" />
 		<None Remove="UnityProject - PlateupAP\**" />
 	</ItemGroup>

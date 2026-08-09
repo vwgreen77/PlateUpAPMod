@@ -1,5 +1,6 @@
 ﻿using Archipelago.MultiClient.Net.Enums;
 using Archipelago.MultiClient.Net.Helpers;
+using Archipelago.MultiClient.Net;
 using Archipelago.MultiClient.Net.MessageLog.Messages;
 using Archipelago.MultiClient.Net.MessageLog.Parts;
 using Archipelago.MultiClient.Net.Models;
@@ -21,6 +22,7 @@ namespace KitchenPlateupAP
     public class ChatManager : MonoBehaviour
     {
         private static ChatManager Instance;
+        private ArchipelagoSession subscribedSession;
 
         private enum ChatCategory { Normal, System }
 
@@ -136,7 +138,22 @@ namespace KitchenPlateupAP
             if (Instance == null) Instance = this;
             else if (Instance != this) { Destroy(gameObject); return; }
 
+            if (GetComponent<CheckPopupManager>() == null)
+                gameObject.AddComponent<CheckPopupManager>();
+
+            ArchipelagoConnectionManager.Connected += SubscribeEvents;
+            ArchipelagoConnectionManager.Disconnected += OnDisconnected;
             SubscribeEvents();
+        }
+
+        void OnDestroy()
+        {
+            if (Instance != this) return;
+
+            ArchipelagoConnectionManager.Connected -= SubscribeEvents;
+            ArchipelagoConnectionManager.Disconnected -= OnDisconnected;
+            UnsubscribeEvents();
+            Instance = null;
         }
 
         void Update()
@@ -492,21 +509,39 @@ namespace KitchenPlateupAP
         private void SubscribeEvents()
         {
             var session = ArchipelagoConnectionManager.Session;
-            if (session != null && ArchipelagoConnectionManager.ConnectionSuccessful)
+            if (session == null || !ArchipelagoConnectionManager.ConnectionSuccessful || session == subscribedSession)
+                return;
+
+            UnsubscribeEvents();
+            try
             {
-                try
-                {
-                    session.MessageLog.OnMessageReceived += OnStructuredLogMessage;
-                }
-                catch { }
+                session.MessageLog.OnMessageReceived += OnStructuredLogMessage;
+                subscribedSession = session;
             }
+            catch { }
         }
+
+        private void OnDisconnected(string _)
+        {
+            UnsubscribeEvents();
+        }
+
+        private void UnsubscribeEvents()
+        {
+            if (subscribedSession == null) return;
+
+            try { subscribedSession.MessageLog.OnMessageReceived -= OnStructuredLogMessage; }
+            catch { }
+            subscribedSession = null;
+        }
+
         private void OnStructuredLogMessage(APLogMessage msg)
         {
             try
             {
                 var session = ArchipelagoConnectionManager.Session;
                 if (session == null) return;
+                CheckPopupManager.AddFromMessage(msg);
                 var segments = new List<Segment>();
 
                 foreach (var part in msg.Parts)
