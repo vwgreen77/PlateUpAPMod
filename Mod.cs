@@ -1643,15 +1643,22 @@ namespace KitchenPlateupAP
                 EnsureDishLockingBaseline();
                 ApplyGroupSizeOverride();
 
-                var franchiseProgress = PersistenceManager.LoadFranchiseProgress(currentIdentity);
-                if (franchiseProgress != null)
+                // Only goal 0 (franchise goal) ever writes this file, and only goal 0's
+                // day-check logic reads dayID/timesFranchised. Applying it under goal 1/2
+                // would clobber the values ReconstructProgressFromLocationChecks() just
+                // authoritatively derived from the server above.
+                if (goal == 0)
                 {
-                    timesFranchised = franchiseProgress.TimesFranchised;
-                    overallDaysCompleted = franchiseProgress.OverallDaysCompleted;
-                    highestOverallDayReached = franchiseProgress.HighestOverallDayReached;
-                    overallStarsEarned = franchiseProgress.OverallStarsEarned;
-                    dayID = ComputeRunBaseOffset(timesFranchised);
-                    Logger.LogInfo($"[Persistence] Loaded franchise progress: franchises={timesFranchised}, days={overallDaysCompleted}, stars={overallStarsEarned}");
+                    var franchiseProgress = PersistenceManager.LoadFranchiseProgress(currentIdentity);
+                    if (franchiseProgress != null)
+                    {
+                        timesFranchised = franchiseProgress.TimesFranchised;
+                        overallDaysCompleted = franchiseProgress.OverallDaysCompleted;
+                        highestOverallDayReached = franchiseProgress.HighestOverallDayReached;
+                        overallStarsEarned = franchiseProgress.OverallStarsEarned;
+                        dayID = ComputeRunBaseOffset(timesFranchised);
+                        Logger.LogInfo($"[Persistence] Loaded franchise progress: franchises={timesFranchised}, days={overallDaysCompleted}, stars={overallStarsEarned}");
+                    }
                 }
 
                 if (World != null)
@@ -2200,6 +2207,22 @@ namespace KitchenPlateupAP
 
         private void OnItemReceived(IReceivedItemsHelper helper)
         {
+            // Whole body wrapped so one bad item (bad lookup, unexpected null, etc.)
+            // can't throw out of the event handler mid-way through and leave
+            // pendingSpawnState/spawnQueue partially updated for that item, or abort
+            // processing of subsequently-queued items on the same event.
+            try
+            {
+                OnItemReceivedCore(helper);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"[OnItemReceived] Unhandled exception processing received item (thread {System.Threading.Thread.CurrentThread.ManagedThreadId}): {ex}");
+            }
+        }
+
+        private void OnItemReceivedCore(IReceivedItemsHelper helper)
+        {
             ItemInfo info = helper.DequeueItem();
 
             // The AP client replays the entire item history on connect.
@@ -2579,14 +2602,6 @@ namespace KitchenPlateupAP
                 pendingSpawnState.PendingItemIDs.Remove(checkId);
                 return;
             }
-
-            // Non-speed items -> add to queue and persist
-            receivedItemPool.Add(checkId);
-
-            // Non-speed items -> add to queue and persist   ← also remove this duplicate line below
-
-            // Non-speed items -> add to queue and persist
-            receivedItemPool.Add(checkId);
 
             // Non-speed items -> add to queue and persist
             receivedItemPool.Add(checkId);
@@ -3709,8 +3724,11 @@ namespace KitchenPlateupAP
                         DoSettingChecks(lastDay);
                     }
 
-                    // Only advance the overall-day counter if this SDay is new
-                    int dayLocID = 110000 + gameDay;
+                    // Map to the next sequential global day slot, not the per-run SDay.
+                    // Using SDay caused days 1-N of a new run to collide with already-checked
+                    // locations from a prior run (e.g. run 2 day 1 == run 1 day 1 == loc 110001).
+                    int nextGlobalDay = overallDaysCompleted + 1;
+                    int dayLocID = 110000 + nextGlobalDay;
                     bool alreadySent = session.Locations.AllLocationsChecked.Contains(dayLocID);
 
                     if (!alreadySent)

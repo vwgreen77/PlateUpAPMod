@@ -24,7 +24,10 @@ namespace KitchenPlateupAP.Patches
             if (!__instance.HasSingleton<SDay>())
                 return true;
 
-            int currentDay = __instance.GetSingleton<SDay>().Day;
+            // SDay.Day still holds the day that just completed at this point — StartNewDay
+            // itself (whose body this prefix runs before) is what increments it. The lease
+            // formulas are written in terms of the day about to be entered, so pass Day + 1.
+            int currentDay = __instance.GetSingleton<SDay>().Day + 1;
             bool isBlocking = LeaseRequirementSystem.ShouldBlockStartDay(currentDay);
             var status = LeaseRequirementSystem.LastStatus;
 

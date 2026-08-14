@@ -297,11 +297,13 @@ namespace KitchenPlateupAP
                 var trapCards = TrapCardFile(id);
                 var dishDays = DishDayFile(id);
                 var blueprintChecks = BlueprintCheckFile(id);
+                var franchiseProgress = FranchiseProgressFile(id);
                 if (File.Exists(speed)) File.Delete(speed);
                 if (File.Exists(pending)) File.Delete(pending);
                 if (File.Exists(trapCards)) File.Delete(trapCards);
                 if (File.Exists(dishDays)) File.Delete(dishDays);
                 if (File.Exists(blueprintChecks)) File.Delete(blueprintChecks);
+                if (File.Exists(franchiseProgress)) File.Delete(franchiseProgress);
             }
             catch (Exception ex)
             {
