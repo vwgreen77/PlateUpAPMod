@@ -139,7 +139,7 @@ class DishUnlockDuplicateCount(Range):
     display_name = "Dish Unlock Duplicate Count"
     range_start = 0
     range_end = 5
-    default = 0
+    default = 1
 
 
 class ItemsKept(Range):
