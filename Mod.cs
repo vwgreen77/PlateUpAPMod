@@ -265,6 +265,12 @@ namespace KitchenPlateupAP
         public static int TotalLeaseItemsReceived = 0;
         private static bool itemsEventSubscribed = false;
         private static Queue<ItemInfo> spawnQueue = new Queue<ItemInfo>();
+        // EnsureDishUpgradeEntityExists can be called from connection/network callbacks that
+        // do not run on Unity's main thread. EntityManager calls are main-thread-only, so the
+        // actual entity creation is deferred to OnUpdate via this queue instead of touching
+        // EntityManager inline.
+        private static readonly HashSet<int> pendingDishUpgradeEntityIds = new HashSet<int>();
+        private static readonly object pendingDishUpgradeEntityIdsLock = new object();
         private bool franchisePending = false;
         private bool moneyClampedThisPrep = false;
         private bool forceSpawnRequested = false;
@@ -828,6 +834,8 @@ namespace KitchenPlateupAP
                         {
                             LockedDishes.SetUnlockedDishes(baselineIds);
                             LockedDishes.EnableLocking();
+                            foreach (int baselineId in baselineIds)
+                                EnsureDishUpgradeEntityExists(baselineId);
                             PersistLastSelectedDishes(selectedDishes);
                             Logger.LogInfo($"[PlateupAP] Baseline dishes unlocked: {string.Join(", ", baselineIds)} (free count={freeStarterDishCount})");
                         }
@@ -1457,6 +1465,7 @@ namespace KitchenPlateupAP
                     foreach (int dishId in allDishIds)
                     {
                         PersistUnlockedDish(dishId);
+                        EnsureDishUpgradeEntityExists(dishId);
                     }
 
                     Logger.LogWarning($"[Debug] Unlocked all {allDishIds.Count} dishes: {string.Join(", ", allDishIds.Select(id => ProgressionMapping.dishDictionary[id]))}");
@@ -1552,7 +1561,14 @@ namespace KitchenPlateupAP
             DumpStartupLoaderExceptions("OnInitialise");
             Logger.LogWarning($"{MOD_GUID} v{MOD_VERSION} in use!");
             var harmony = new Harmony("com.caz.plateupap.patch");
-            harmony.PatchAll(Assembly.GetExecutingAssembly());
+            try
+            {
+                harmony.PatchAll(Assembly.GetExecutingAssembly());
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"[Harmony] PatchAll threw: {ex}");
+            }
             JsonConvert.DefaultSettings = null;
             Mod.Logger.LogInfo("DishCardReadingSystem initialised.");
             playersWithItems = GetEntityQuery(new QueryHelper().All(typeof(CPlayer), typeof(CItemHolder)));
@@ -1590,6 +1606,23 @@ namespace KitchenPlateupAP
                     currentIdentity = BuildIdentity();
                     if (currentIdentity != null)
                     {
+                        // Address/Port/Player alone can't tell "same room, still the same seed"
+                        // apart from "same room, but regenerated a new multiworld from the same
+                        // yaml" — both look identical without this. Enrich with the actual seed
+                        // now that we're connected and the server has told us what it is, so
+                        // every persisted file below is scoped per-seed, not just per-server.
+                        try
+                        {
+                            string seed = session?.RoomState?.Seed;
+                            if (!string.IsNullOrEmpty(seed))
+                                currentIdentity.Seed = seed;
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger?.LogWarning($"[Persistence] Could not read RoomState.Seed: {ex.Message}");
+                        }
+                        Logger?.LogInfo($"[Persistence] (Diag) Resolved identity: Address={currentIdentity.Address}, Port={currentIdentity.Port}, Player={currentIdentity.Player}, Seed={currentIdentity.Seed}");
+
                         var speedState = PersistenceManager.LoadSpeedState(currentIdentity);
                         if (speedState != null)
                         {
@@ -1643,15 +1676,22 @@ namespace KitchenPlateupAP
                 EnsureDishLockingBaseline();
                 ApplyGroupSizeOverride();
 
-                var franchiseProgress = PersistenceManager.LoadFranchiseProgress(currentIdentity);
-                if (franchiseProgress != null)
+                // Only goal 0 (franchise goal) ever writes this file, and only goal 0's
+                // day-check logic reads dayID/timesFranchised. Applying it under goal 1/2
+                // would clobber the values ReconstructProgressFromLocationChecks() just
+                // authoritatively derived from the server above.
+                if (goal == 0)
                 {
-                    timesFranchised = franchiseProgress.TimesFranchised;
-                    overallDaysCompleted = franchiseProgress.OverallDaysCompleted;
-                    highestOverallDayReached = franchiseProgress.HighestOverallDayReached;
-                    overallStarsEarned = franchiseProgress.OverallStarsEarned;
-                    dayID = ComputeRunBaseOffset(timesFranchised);
-                    Logger.LogInfo($"[Persistence] Loaded franchise progress: franchises={timesFranchised}, days={overallDaysCompleted}, stars={overallStarsEarned}");
+                    var franchiseProgress = PersistenceManager.LoadFranchiseProgress(currentIdentity);
+                    if (franchiseProgress != null)
+                    {
+                        timesFranchised = franchiseProgress.TimesFranchised;
+                        overallDaysCompleted = franchiseProgress.OverallDaysCompleted;
+                        highestOverallDayReached = franchiseProgress.HighestOverallDayReached;
+                        overallStarsEarned = franchiseProgress.OverallStarsEarned;
+                        dayID = ComputeRunBaseOffset(timesFranchised);
+                        Logger.LogInfo($"[Persistence] Loaded franchise progress: franchises={timesFranchised}, days={overallDaysCompleted}, stars={overallStarsEarned}");
+                    }
                 }
 
                 if (World != null)
@@ -1919,6 +1959,8 @@ namespace KitchenPlateupAP
 
         protected override void OnUpdate()
         {
+            ProcessPendingDishUpgradeEntities();
+
             if (slowEffectExpiry.Count > 0)
             {
                 float now = UnityEngine.Time.time;
@@ -2199,6 +2241,22 @@ namespace KitchenPlateupAP
         private static int _receivedItemCounter = 0;
 
         private void OnItemReceived(IReceivedItemsHelper helper)
+        {
+            // Whole body wrapped so one bad item (bad lookup, unexpected null, etc.)
+            // can't throw out of the event handler mid-way through and leave
+            // pendingSpawnState/spawnQueue partially updated for that item, or abort
+            // processing of subsequently-queued items on the same event.
+            try
+            {
+                OnItemReceivedCore(helper);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"[OnItemReceived] Unhandled exception processing received item (thread {System.Threading.Thread.CurrentThread.ManagedThreadId}): {ex}");
+            }
+        }
+
+        private void OnItemReceivedCore(IReceivedItemsHelper helper)
         {
             ItemInfo info = helper.DequeueItem();
 
@@ -2579,14 +2637,6 @@ namespace KitchenPlateupAP
                 pendingSpawnState.PendingItemIDs.Remove(checkId);
                 return;
             }
-
-            // Non-speed items -> add to queue and persist
-            receivedItemPool.Add(checkId);
-
-            // Non-speed items -> add to queue and persist   ← also remove this duplicate line below
-
-            // Non-speed items -> add to queue and persist
-            receivedItemPool.Add(checkId);
 
             // Non-speed items -> add to queue and persist
             receivedItemPool.Add(checkId);
@@ -3664,13 +3714,17 @@ namespace KitchenPlateupAP
                         overallDaysCompleted++;
                         Logger.LogInfo($"[Day Goal] New overall day {overallDaysCompleted} completed (SDay={gameDay}).");
 
-                        if (overallDaysCompleted <= 100)
+                        // day_count is exposed to players as a 10-1000 range in the apworld
+                        // (Options.py DayCount); this cap must match that ceiling or higher
+                        // day counts silently stop sending checks past day 100.
+                        if (overallDaysCompleted <= 1000)
                         {
                             session.Locations.CompleteLocationChecks(dayLocID);
                             Logger.LogInfo($"[Day Goal] Completed location => ID={dayLocID}");
                         }
 
-                        if (overallDaysCompleted % 3 == 0 && overallStarsEarned < 33)
+                        // 334 = ceil(1000/3), matching the apworld's max star count for day_count=1000.
+                        if (overallDaysCompleted % 3 == 0 && overallStarsEarned < 334)
                         {
                             overallStarsEarned++;
                             int starLocID = 120000 + overallStarsEarned;
@@ -3709,8 +3763,11 @@ namespace KitchenPlateupAP
                         DoSettingChecks(lastDay);
                     }
 
-                    // Only advance the overall-day counter if this SDay is new
-                    int dayLocID = 110000 + gameDay;
+                    // Map to the next sequential global day slot, not the per-run SDay.
+                    // Using SDay caused days 1-N of a new run to collide with already-checked
+                    // locations from a prior run (e.g. run 2 day 1 == run 1 day 1 == loc 110001).
+                    int nextGlobalDay = overallDaysCompleted + 1;
+                    int dayLocID = 110000 + nextGlobalDay;
                     bool alreadySent = session.Locations.AllLocationsChecked.Contains(dayLocID);
 
                     if (!alreadySent)
@@ -4313,6 +4370,7 @@ namespace KitchenPlateupAP
             PersistUnlockedDish(dishGdoId);
             LockedDishes.AddUnlockedDishes(new[] { dishGdoId });
             LockedDishes.EnableLocking();
+            EnsureDishUpgradeEntityExists(dishGdoId);
 
             Logger.LogInfo($"[DishUnlock] Unlocked dish '{dishName}' via item ID {checkId} (GDO ID: {dishGdoId}).");
             return true;
@@ -4413,6 +4471,7 @@ namespace KitchenPlateupAP
                 // the allowed dish set or they will overwrite the AP baseline on reload.
                 LockedDishes.AddUnlockedDishes(new[] { DishId });
                 LockedDishes.EnableLocking();
+                EnsureDishUpgradeEntityExists(DishId);
             }
 
             Logger.LogInfo($"[Dish] Current dish set to '{GetDishName(DishId)}' (GDO {DishId}).");
@@ -4485,6 +4544,77 @@ namespace KitchenPlateupAP
             Logger?.LogInfo($"[Achievement] Sent location check for '{identifier}' (locId={locId}).");
             ChatManager.AddSystemMessage($"Achievement unlocked: {identifier}");
         }
+        // Vanilla only ever creates a CDishUpgrade "grant" entity for a dish the player's
+        // PlateUp profile has organically unlocked through normal vanilla progression.
+        // LockedDishes tracking a dish as AP-allowed does not, by itself, create that entity —
+        // for a dish the profile never legitimately unlocked (e.g. a newly-added dish like
+        // Fajitas on an older profile), nothing ever grants it, so it can never appear as a
+        // hub pedestal or be cookable, regardless of what AP says. Create the entity ourselves
+        // so an AP-granted dish is always actually playable.
+        private void EnsureDishUpgradeEntityExists(int dishGdoId)
+        {
+            if (dishGdoId == 0)
+                return;
+
+            // Callers include connection/network callbacks that may not run on Unity's main
+            // thread — queue the id and let ProcessPendingDishUpgradeEntities (called from
+            // OnUpdate) do the actual EntityManager work safely.
+            lock (pendingDishUpgradeEntityIdsLock)
+            {
+                pendingDishUpgradeEntityIds.Add(dishGdoId);
+            }
+        }
+
+        private void ProcessPendingDishUpgradeEntities()
+        {
+            HashSet<int> idsToEnsure;
+            lock (pendingDishUpgradeEntityIdsLock)
+            {
+                idsToEnsure = new HashSet<int>(pendingDishUpgradeEntityIds);
+                pendingDishUpgradeEntityIds.Clear();
+            }
+
+            // Also continuously self-heal, not just react to the one-time triggers above:
+            // vanilla appears to clear these grant entities out on some scene reloads (e.g.
+            // leaving and re-entering the hub after a franchise run), well after connect-time
+            // or item-received triggers have already fired and won't fire again. Checking every
+            // frame matches how FilterDishUpgradesSystem/FilterPlacedDishChoicesSystem already
+            // stay correct continuously rather than relying on one-shot setup.
+            if (LockedDishes.IsLockingEnabled())
+            {
+                foreach (int dishId in LockedDishes.GetAvailableDishes())
+                    idsToEnsure.Add(dishId);
+            }
+
+            if (idsToEnsure.Count == 0)
+                return;
+
+            EntityQuery existingQuery = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<CDishUpgrade>());
+            HashSet<int> existingDishIds = new HashSet<int>();
+            using (NativeArray<Entity> entities = existingQuery.ToEntityArray(Allocator.Temp))
+            {
+                foreach (Entity e in entities)
+                {
+                    if (EntityManager.Exists(e) && EntityManager.HasComponent<CDishUpgrade>(e))
+                        existingDishIds.Add(EntityManager.GetComponentData<CDishUpgrade>(e).DishID);
+                }
+            }
+
+            foreach (int dishGdoId in idsToEnsure)
+            {
+                if (dishGdoId == 0 || existingDishIds.Contains(dishGdoId))
+                    continue;
+
+                // CPersistThroughSceneChanges matters here: this entity is often created while
+                // still in the lobby/menu, before the hub scene has even loaded. Without it,
+                // Unity's normal scene-unload cleanup destroys the entity on the very next
+                // scene transition, well before CreateDishOptions ever gets to consume it.
+                Entity newEntity = EntityManager.CreateEntity(typeof(CDishUpgrade), typeof(CGranted), typeof(CPersistThroughSceneChanges));
+                EntityManager.SetComponentData(newEntity, new CDishUpgrade { DishID = dishGdoId });
+                Logger?.LogInfo($"[LockedDishes] Created CDishUpgrade entity for dish {dishGdoId} (vanilla profile never granted it, or it was cleared on scene reload).");
+            }
+        }
+
         private void EnsureDishLockingBaseline()
         {
             // Already have an allowed set
@@ -4497,6 +4627,7 @@ namespace KitchenPlateupAP
             {
                 LockedDishes.SetUnlockedDishes(new[] { persisted.Value });
                 LockedDishes.EnableLocking();
+                EnsureDishUpgradeEntityExists(persisted.Value);
                 SetCurrentDish(persisted.Value, persist: false, resetDayCounter: false);
                 Logger.LogWarning($"[LockedDishes] Fallback baseline applied from persisted dish {persisted.Value}.");
                 return;

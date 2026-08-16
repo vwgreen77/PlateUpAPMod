@@ -13,6 +13,11 @@ namespace KitchenPlateupAP
         private static bool forceRefresh = false;
         public static event Action RequestRefresh;
 
+        // Resolved from ProgressionMapping's canonical utility-item table rather than
+        // hardcoded, so a renumber there can't silently desync the lease gate.
+        private static readonly int DayLeaseItemId = ProgressionMapping.GetUtilityItemId("DayLease");
+        private static readonly int OvertimeDayLeaseItemId = ProgressionMapping.GetUtilityItemId("OvertimeDayLease");
+
         public static void TriggerRefresh()
         {
             forceRefresh = true;
@@ -137,7 +142,7 @@ namespace KitchenPlateupAP
             // ── Branch: global mode — "Day Lease" (ID 15) gates all days ─────
             if (leaseMode == 0)
             {
-                leaseCount = allItems.Count(item => (int)item.ItemId == 15);
+                leaseCount = allItems.Count(item => (int)item.ItemId == DayLeaseItemId);
                 requiredLeases = ComputeRequiredLeases(goal, currentDay, highestDay, timesFranchised, interval);
                 gateActive = requiredLeases > 0 && leaseCount < requiredLeases;
             }
@@ -179,7 +184,7 @@ namespace KitchenPlateupAP
                     }
                     else
                     {
-                        leaseCount = allItems.Count(item => (int)item.ItemId == 32000);
+                        leaseCount = allItems.Count(item => (int)item.ItemId == OvertimeDayLeaseItemId);
                         requiredLeases = ComputeRequiredOvertimeLeases(currentDay, highestDay, goal, interval);
                         gateActive = requiredLeases > 0 && leaseCount < requiredLeases;
                     }
@@ -325,7 +330,7 @@ namespace KitchenPlateupAP
 
         /// <summary>
         /// Required "Overtime Day Lease" (ID 32000) items for dish_specific mode
-        /// on days above 15 (goals 0/1 only).
+        /// on days above 15 (all goals).
         /// floor(overtimeProgress / interval) where overtimeProgress is days past 15.
         /// </summary>
         private static int ComputeRequiredOvertimeLeases(

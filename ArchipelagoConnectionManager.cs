@@ -387,18 +387,6 @@ namespace KitchenPlateupAP
             catch { }
         }
 
-        private static void OnItemReceived(ReceivedItemsHelper helper)
-        {
-            try
-            {
-
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError("OnItemReceived error: " + ex.Message);
-            }
-        }
-
         private static void SafeInvokeConnected()
         {
             try { Connected?.Invoke(); } catch (Exception e) { Logger.LogError("Connected event handler error: " + e.Message); }
