@@ -27,12 +27,13 @@ namespace KitchenPlateupAP
         private static bool _socketListenerRegistered = false;
 
         // ── Run state ─────────────────────────────────────────────────────────
-        public static int TotalPurchased { get; private set; } = 0;
+        // Indices are bought in whatever order the player interacts with pedestals, not
+        // necessarily ascending — a purchased index must never be offered again, tracked
+        // explicitly here rather than inferred from a simple purchase count.
+        private static readonly HashSet<int> _purchasedIndices = new HashSet<int>();
         private static readonly HashSet<int> _assignedIndices = new HashSet<int>();
+        public static int TotalPurchased => _purchasedIndices.Count;
         public static bool PedestalsSpawnedThisPrep { get; set; } = false;
-
-        // ── Backwards compat alias ───────────────────────────────────────────
-        public static int NextCheckIndex => TotalPurchased;
 
         // ── Initialisation ────────────────────────────────────────────────────
 
@@ -43,6 +44,7 @@ namespace KitchenPlateupAP
             CheckIds = new List<long>();
             _scoutedItemNames.Clear();
             _assignedIndices.Clear();
+            _purchasedIndices.Clear();
             ScoutingComplete = false;
             _socketListenerRegistered = false;
 
@@ -176,16 +178,22 @@ namespace KitchenPlateupAP
 
         public static void LoadState(BlueprintCheckState state)
         {
-            TotalPurchased = state != null
-                ? Mathf.Clamp(state.NextCheckIndex, 0, Math.Max(0, CheckIds.Count))
-                : 0;
+            _purchasedIndices.Clear();
+            if (state?.PurchasedIndices != null)
+            {
+                foreach (int idx in state.PurchasedIndices)
+                {
+                    if (idx >= 0 && idx < CheckIds.Count)
+                        _purchasedIndices.Add(idx);
+                }
+            }
             _assignedIndices.Clear();
             Mod.Logger.LogInfo($"[BlueprintChecks] Loaded state: TotalPurchased={TotalPurchased}/{CheckIds.Count}");
         }
 
         public static void ResetForNewRun()
         {
-            TotalPurchased = 0;
+            _purchasedIndices.Clear();
             _assignedIndices.Clear();
             PedestalsSpawnedThisPrep = false;
             Mod.Logger.LogInfo("[BlueprintChecks] State reset for new run.");
@@ -195,9 +203,9 @@ namespace KitchenPlateupAP
 
         public static int ClaimNextIndex()
         {
-            for (int i = TotalPurchased; i < CheckIds.Count; i++)
+            for (int i = 0; i < CheckIds.Count; i++)
             {
-                if (!_assignedIndices.Contains(i))
+                if (!_assignedIndices.Contains(i) && !_purchasedIndices.Contains(i))
                 {
                     _assignedIndices.Add(i);
                     return i;
@@ -235,8 +243,8 @@ namespace KitchenPlateupAP
         public static void RecordPurchase(int purchasedIndex, RunIdentity identity)
         {
             _assignedIndices.Remove(purchasedIndex);
-            TotalPurchased++;
-            PersistenceManager.SaveBlueprintCheckState(identity, new BlueprintCheckState { NextCheckIndex = TotalPurchased });
+            _purchasedIndices.Add(purchasedIndex);
+            PersistenceManager.SaveBlueprintCheckState(identity, new BlueprintCheckState { PurchasedIndices = _purchasedIndices.ToList() });
             Mod.Logger.LogInfo($"[BlueprintChecks] Purchase recorded. TotalPurchased={TotalPurchased}/{CheckIds.Count}");
         }
 

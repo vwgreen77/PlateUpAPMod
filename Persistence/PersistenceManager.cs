@@ -47,14 +47,28 @@ namespace KitchenPlateupAP
         public int Port;
         public string Player;
 
-        public override string ToString() => $"{Address}_{Port}_{Player}";
+        // The specific generated multiworld's seed (Archipelago session.RoomState.Seed).
+        // Address/Port/Player alone can't distinguish "reconnected to the same room, still
+        // the same seed" from "reconnected to the same room, but regenerated a new multiworld
+        // from the same yaml" — both produce an identical Address/Port/Player. Without Seed,
+        // all persisted state (blueprint progress, franchise progress, speed tiers, etc.)
+        // would silently carry over between two otherwise-unrelated seeds. Null/empty before
+        // a connection has actually completed (unknown until the server sends RoomInfo).
+        public string Seed;
+
+        public override string ToString() => $"{Address}_{Port}_{Player}_{Seed}";
     }
 
-    /// <summary>Persists blueprint-check progress so reconnects pick up where the player left off.</summary>
+    /// <summary>
+    /// Persists blueprint-check progress so reconnects pick up where the player left off.
+    /// Stores the actual set of purchased indices rather than just a count — pedestals can be
+    /// bought in any order (not necessarily ascending), so a simple "how many purchased" count
+    /// can't tell which specific indices are actually done.
+    /// </summary>
     [Serializable]
     public class BlueprintCheckState
     {
-        public int NextCheckIndex;
+        public List<int> PurchasedIndices = new List<int>();
     }
 
     /// <summary>
@@ -107,16 +121,16 @@ namespace KitchenPlateupAP
             string.Concat((value ?? "unknown").Split(Path.GetInvalidFileNameChars()));
 
         private static string SpeedFile(RunIdentity id) =>
-            Path.Combine(RootPath, $"speed_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}.json");
+            Path.Combine(RootPath, $"speed_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}_{Sanitize(id.Seed)}.json");
         private static string PendingFile(RunIdentity id) =>
-            Path.Combine(RootPath, $"pending_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}.json");
+            Path.Combine(RootPath, $"pending_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}_{Sanitize(id.Seed)}.json");
         private static string TrapCardFile(RunIdentity id) =>
-            Path.Combine(RootPath, $"trapcards_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}.json");
+            Path.Combine(RootPath, $"trapcards_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}_{Sanitize(id.Seed)}.json");
         private static string DishDayFile(RunIdentity id) =>
-            Path.Combine(RootPath, $"dishdays_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}.json");
+            Path.Combine(RootPath, $"dishdays_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}_{Sanitize(id.Seed)}.json");
         private static string IdentityFile => Path.Combine(RootPath, "last_identity.json");
         private static string GarageFile(RunIdentity id) =>
-            Path.Combine(RootPath, $"garage_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}.json");
+            Path.Combine(RootPath, $"garage_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}_{Sanitize(id.Seed)}.json");
         private static string FranchiseProgressFile(RunIdentity id) =>
             Path.Combine(RootPath, $"{id}_franchise_progress.json");
 
@@ -313,7 +327,7 @@ namespace KitchenPlateupAP
 
         // ── Blueprint Check State ────────────────────────────────────────────
         private static string BlueprintCheckFile(RunIdentity id) =>
-            Path.Combine(RootPath, $"blueprintchecks_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}.json");
+            Path.Combine(RootPath, $"blueprintchecks_{Sanitize(id.Address)}_{id.Port}_{Sanitize(id.Player)}_{Sanitize(id.Seed)}.json");
 
         public static BlueprintCheckState LoadBlueprintCheckState(RunIdentity id)
         {

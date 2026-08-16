@@ -1606,6 +1606,23 @@ namespace KitchenPlateupAP
                     currentIdentity = BuildIdentity();
                     if (currentIdentity != null)
                     {
+                        // Address/Port/Player alone can't tell "same room, still the same seed"
+                        // apart from "same room, but regenerated a new multiworld from the same
+                        // yaml" — both look identical without this. Enrich with the actual seed
+                        // now that we're connected and the server has told us what it is, so
+                        // every persisted file below is scoped per-seed, not just per-server.
+                        try
+                        {
+                            string seed = session?.RoomState?.Seed;
+                            if (!string.IsNullOrEmpty(seed))
+                                currentIdentity.Seed = seed;
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger?.LogWarning($"[Persistence] Could not read RoomState.Seed: {ex.Message}");
+                        }
+                        Logger?.LogInfo($"[Persistence] (Diag) Resolved identity: Address={currentIdentity.Address}, Port={currentIdentity.Port}, Player={currentIdentity.Player}, Seed={currentIdentity.Seed}");
+
                         var speedState = PersistenceManager.LoadSpeedState(currentIdentity);
                         if (speedState != null)
                         {
@@ -4550,14 +4567,27 @@ namespace KitchenPlateupAP
 
         private void ProcessPendingDishUpgradeEntities()
         {
-            List<int> toProcess;
+            HashSet<int> idsToEnsure;
             lock (pendingDishUpgradeEntityIdsLock)
             {
-                if (pendingDishUpgradeEntityIds.Count == 0)
-                    return;
-                toProcess = pendingDishUpgradeEntityIds.ToList();
+                idsToEnsure = new HashSet<int>(pendingDishUpgradeEntityIds);
                 pendingDishUpgradeEntityIds.Clear();
             }
+
+            // Also continuously self-heal, not just react to the one-time triggers above:
+            // vanilla appears to clear these grant entities out on some scene reloads (e.g.
+            // leaving and re-entering the hub after a franchise run), well after connect-time
+            // or item-received triggers have already fired and won't fire again. Checking every
+            // frame matches how FilterDishUpgradesSystem/FilterPlacedDishChoicesSystem already
+            // stay correct continuously rather than relying on one-shot setup.
+            if (LockedDishes.IsLockingEnabled())
+            {
+                foreach (int dishId in LockedDishes.GetAvailableDishes())
+                    idsToEnsure.Add(dishId);
+            }
+
+            if (idsToEnsure.Count == 0)
+                return;
 
             EntityQuery existingQuery = EntityManager.CreateEntityQuery(ComponentType.ReadOnly<CDishUpgrade>());
             HashSet<int> existingDishIds = new HashSet<int>();
@@ -4570,9 +4600,9 @@ namespace KitchenPlateupAP
                 }
             }
 
-            foreach (int dishGdoId in toProcess)
+            foreach (int dishGdoId in idsToEnsure)
             {
-                if (existingDishIds.Contains(dishGdoId))
+                if (dishGdoId == 0 || existingDishIds.Contains(dishGdoId))
                     continue;
 
                 // CPersistThroughSceneChanges matters here: this entity is often created while
@@ -4581,7 +4611,7 @@ namespace KitchenPlateupAP
                 // scene transition, well before CreateDishOptions ever gets to consume it.
                 Entity newEntity = EntityManager.CreateEntity(typeof(CDishUpgrade), typeof(CGranted), typeof(CPersistThroughSceneChanges));
                 EntityManager.SetComponentData(newEntity, new CDishUpgrade { DishID = dishGdoId });
-                Logger?.LogInfo($"[LockedDishes] Created CDishUpgrade entity for dish {dishGdoId} (vanilla profile never granted it).");
+                Logger?.LogInfo($"[LockedDishes] Created CDishUpgrade entity for dish {dishGdoId} (vanilla profile never granted it, or it was cleared on scene reload).");
             }
         }
 
