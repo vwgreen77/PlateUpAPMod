@@ -124,6 +124,24 @@ class FreeStarterDishes(Range):
     range_end = 18
     default = 1
 
+class DishUnlockDuplicateCount(Range):
+    """How many extra copies of each non-starting dish's Unlock item to add to the item pool.
+    Archipelago's fill algorithm places items into reachable locations as they open up — more
+    copies of the same item means more chances for one to land somewhere early, purely through
+    pool-composition odds. This does not guarantee dishes arrive before Day Leases in any
+    specific seed, and it does not add any new requirement or gate — a dish still only ever
+    needs one received Unlock item, regardless of how many copies exist.
+    Only applies to non-starting dishes; starting dishes (see free_starter_dishes) already begin
+    unlocked and never have an Unlock item in the pool.
+    Each duplicate copy takes up one more pool slot, which comes out of the filler budget
+    (Coin, Random Appliance, decorations, etc.) — total locations don't change, so more
+    duplicates means less generic filler, not more items overall."""
+    display_name = "Dish Unlock Duplicate Count"
+    range_start = 0
+    range_end = 5
+    default = 0
+
+
 class ItemsKept(Range):
     """How many appliances you are allowed to keep when franchising.
     Higher values make each franchise run easier since you carry over more of your kitchen setup.
@@ -587,6 +605,7 @@ class PlateUpOptions(PerGameCommonOptions):
     dish_goal_count: DishGoalCount
     dish: DishCount
     free_starter_dishes: FreeStarterDishes
+    dish_unlock_duplicate_count: DishUnlockDuplicateCount
     appliances_kept: ItemsKept
     death_link: DeathLink
     death_link_behavior: DeathLinkBehavior

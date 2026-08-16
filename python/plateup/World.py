@@ -292,10 +292,15 @@ class PlateUpWorld(World):
         free_starters = min(self.options.free_starter_dishes.value, len(self.selected_dishes))
         self.starting_dishes = self.selected_dishes[:free_starters]
         self.starting_dish = self.starting_dishes[0] if self.starting_dishes else None
+        # Extra copies purely shift placement odds earlier (more chances for one copy to land
+        # in an early-reachable location) — the access rule only ever requires having any one
+        # of them, so this never changes what's required, only how likely an early arrival is.
+        dish_unlock_copies = 1 + int(self.options.dish_unlock_duplicate_count.value)
         for dish in self.selected_dishes[free_starters:]:
             unlock_name = f"{dish} Unlock"
             if unlock_name in self.item_name_to_id:
-                item_pool.append(self.create_item(unlock_name, classification=ItemClassification.progression))
+                for _ in range(dish_unlock_copies):
+                    item_pool.append(self.create_item(unlock_name, classification=ItemClassification.progression))
 
         # --- Speed upgrades (progression, no access logic) ---
         player_speed_count = int(self.options.player_speed_upgrade_count.value)

@@ -30,7 +30,7 @@ Location checks are in-game actions that send items to other players in the mult
 
 Items you can receive from other players include:
 
-- Dish unlock items, allowing you to open a restaurant with that dish.
+- Dish unlock items, allowing you to open a restaurant with that dish (extra duplicate copies may exist in the pool if `dish_unlock_duplicate_count` is set above 0, purely to improve the odds of an earlier unlock — only one copy is ever needed).
 - Appliance unlock items, adding appliances to your future shop rotations.
 - Speed upgrades for your character and appliances.
 - Day leases, required to progress past certain day intervals.

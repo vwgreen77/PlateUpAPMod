@@ -3,6 +3,7 @@ from worlds.AutoWorld import WebWorld
 from Options import OptionGroup
 from .Options import (
     Goal, FranchiseCount, DayCount, DayTarget, DishGoalCount, DishCount, FreeStarterDishes,
+    DishUnlockDuplicateCount,
     DayLeasesEnabled, DayLeaseInterval, DayLeasesProgressive, DayLeaseMode, DishLeaseScope,
     MoneyCapEnabled, StartingMoneyCap, MoneyCapIncreaseAmount, MoneyCapIncreaseCount, MoneyCapActivation,
     ApplianceUnlocks, ApplianceUnlockPoolSize, ApplianceUnlockGrantsAppliance, UnlockedAppliancesInShop,
@@ -20,6 +21,7 @@ from .Options import (
 option_groups = [
     OptionGroup("Goal Settings", [
         Goal, FranchiseCount, DayCount, DayTarget, DishGoalCount, DishCount, FreeStarterDishes,
+        DishUnlockDuplicateCount,
     ]),
     OptionGroup("Progression Gates", [
         DayLeasesEnabled, DayLeaseInterval, DayLeasesProgressive, DayLeaseMode, DishLeaseScope,
