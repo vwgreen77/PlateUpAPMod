@@ -42,9 +42,15 @@ namespace KitchenPlateupAP
             if (!ArchipelagoConnectionManager.ConnectionSuccessful || ArchipelagoConnectionManager.Session == null)
                 return;
 
+            // During prep (the only phase this system evaluates, gated by SIsNightTime
+            // below), SDay.Day still holds the day that just completed — the lease
+            // formulas and the StartNewDay Harmony boundary are both written in terms
+            // of the day about to start, so this must add +1 to match ShouldBlockStartDay
+            // and avoid stomping its result back to the previous day's (already-satisfied)
+            // requirement on the very next frame.
             if (!Mod.SlotDataLoaded)
             {
-                ClearGate(HasSingleton<SDay>() ? GetSingleton<SDay>().Day : 0);
+                ClearGate(HasSingleton<SDay>() ? GetSingleton<SDay>().Day + 1 : 0);
                 forceRefresh = false;
                 return;
             }
@@ -55,12 +61,12 @@ namespace KitchenPlateupAP
             // Feature disabled — clear gate and return
             if (!Mod.DayLeasesEnabled || Mod.DebugLeaseGateDisabled)
             {
-                ClearGate(HasSingleton<SDay>() ? GetSingleton<SDay>().Day : 0);
+                ClearGate(HasSingleton<SDay>() ? GetSingleton<SDay>().Day + 1 : 0);
                 forceRefresh = false;
                 return;
             }
 
-            int currentDay = HasSingleton<SDay>() ? GetSingleton<SDay>().Day : 0;
+            int currentDay = HasSingleton<SDay>() ? GetSingleton<SDay>().Day + 1 : 0;
             if (currentDay < 1)
                 return;
 
